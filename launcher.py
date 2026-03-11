@@ -46,7 +46,7 @@ def run_agent_container():
     """Start the agent's Docker container (building if necessary) and wait for it to exit."""
     log.info("Building and Invoking Agent Container...")
     # Added --build so agent's changes to pyproject.toml are permanently installed
-    cmd = ["docker-compose", "up", "--build", "--abort-on-container-exit", "ouroboros"]
+    cmd = ["docker", "compose", "up", "--build", "--abort-on-container-exit", "ouroboros"]
     
     # We need to run this in the runtime dir so it finds docker-compose.yml
     process = subprocess.Popen(
