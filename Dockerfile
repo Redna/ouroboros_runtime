@@ -43,6 +43,6 @@ COPY ouroboros_agent/ .
 COPY ouroboros_runtime/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# The entrypoint launches the supervisor
+# The entrypoint launches the seed agent
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["python", "-m", "supervisor.main"]
+CMD ["python", "seed_agent.py"]
