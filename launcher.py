@@ -43,10 +43,10 @@ def force_sync_safety():
             subprocess.run(["cp", str(src), str(dest)], check=True)
 
 def run_agent_container():
-    """Start the agent's Docker container and wait for it to exit."""
-    log.info("Invoking Agent Container...")
-    # Using docker-compose from the runtime directory
-    cmd = ["docker-compose", "up", "--abort-on-container-exit", "ouroboros"]
+    """Start the agent's Docker container (building if necessary) and wait for it to exit."""
+    log.info("Building and Invoking Agent Container...")
+    # Added --build so agent's changes to pyproject.toml are permanently installed
+    cmd = ["docker-compose", "up", "--build", "--abort-on-container-exit", "ouroboros"]
     
     # We need to run this in the runtime dir so it finds docker-compose.yml
     process = subprocess.Popen(
@@ -57,12 +57,17 @@ def run_agent_container():
         text=True
     )
 
-    # Stream output to watchdog log
+    last_logs = []
+    # Stream output to watchdog log and capture for potential crash reporting
     for line in process.stdout:
         print(f"  [AGENT] {line.strip()}")
+        last_logs.append(line.strip())
+        if len(last_logs) > 50:
+            last_logs.pop(0)
 
     process.wait()
-    return process.returncode
+    crash_log = "\n".join(last_logs) if process.returncode != 0 else None
+    return process.returncode, crash_log
 
 def lazarus_protocol(exit_code, crash_log=None):
     """Execute the Lazarus Protocol: rollback the agent's code on crash."""
@@ -95,14 +100,14 @@ def main():
         force_sync_safety()
 
         # Step 2: Boot the Agent
-        exit_code = run_agent_container()
+        exit_code, crash_log = run_agent_container()
 
         # Step 3: Monitor & React
         if exit_code == 0:
             log.info("Agent exited cleanly. Restarting loop...")
         else:
-            # Lazarus Protocol on non-zero exit
-            lazarus_protocol(exit_code)
+            # Lazarus Protocol on non-zero exit (build failure or runtime crash)
+            lazarus_protocol(exit_code, crash_log)
             log.info("Resurrection complete. Restarting loop...")
         
         # Cooldown before restart
