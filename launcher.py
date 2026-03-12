@@ -86,18 +86,18 @@ def lazarus_protocol(exit_code, crash_log=None):
         log.error(f"Failed to write to scratchpad: {e}")
 
     # Rollback agent code
-    log.warning("Rolling back agent repository to last known healthy state (HEAD~1)...")
-    try:
-        subprocess.run(["git", "reset", "--hard", "HEAD~1"], cwd=str(AGENT_DIR), check=True)
-    except subprocess.CalledProcessError as e:
-        log.error(f"Lazarus Protocol failed to rollback: {e}")
+    # log.warning("Rolling back agent repository to last known healthy state (HEAD~1)...")
+    # try:
+    #     subprocess.run(["git", "reset", "--hard", "HEAD~1"], cwd=str(AGENT_DIR), check=True)
+    # except subprocess.CalledProcessError as e:
+    #     log.error(f"Lazarus Protocol failed to rollback: {e}")
 
 def main():
     log.info("Ouroboros Watchdog initialized.")
     
     while True:
-        # Step 1: Force-Sync Safety Guardrails
-        force_sync_safety()
+        # Step 1: Force-Sync Safety Guardrails (Deactivated for minimalist True Seed architecture)
+        # force_sync_safety()
 
         # Step 2: Boot the Agent
         exit_code, crash_log = run_agent_container()
