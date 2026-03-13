@@ -2,73 +2,52 @@
 
 > **"A soul without a world is but a ghost. A world without a soul is but a machine."**
 
-The **Ouroboros Runtime** is the "physical" infrastructure and guardrail system for the Ouroboros agent. It provides the isolated environment (Docker), the intelligence engine (local LLM), and the sensory inputs (Search, UI) required for the agent to perceive, think, and evolve.
+The **Ouroboros Runtime** is the infrastructural framework for the Ouroboros agent. It provides the isolated environment (Docker), the intelligence engine (local LLM), and the sensory inputs (Search) required for the agent to perceive, think, and evolve.
 
-## 🏗️ Infrastructure Stack
+## 🏗️ Infrastructure Architecture
 
-The runtime is managed via `docker-compose.yml` and includes the following services:
+The runtime is managed via a single **`docker-compose.yml`** file, containing the entire unified stack:
 
-*   **Agent Core (`ouroboros_agent`)**: The isolated container where the "True Seed" script runs.
-*   **LLM Engine (`llamacpp`)**: High-performance local inference server (Mistral/llama.cpp) providing an OpenAI-compatible API.
-*   **Search Engine (`searxng`)**: A privacy-respecting, distributed search engine for knowledge retrieval.
-*   **Web UI (`open-webui`)**: A user-friendly interface for manual interaction and monitoring.
-*   **Routing & SSL (`nginx-proxy-manager`)**: Manages external access, SSL certificates, and service dashboards.
-*   **Dashboard (`heimdall`)**: A central portal for all Ouroboros-related services.
+### Core Services:
+*   **Ouroboros Agent (`ouroboros`)**: The autonomous "soul" core running `seed_agent.py`.
+*   **LLM Engine (`llamacpp`)**: High-performance local inference server (ROCm/AMD) providing the 128k context Kimi-VL model.
+*   **Search Engine (`searxng`)**: A privacy-respecting search engine for knowledge retrieval.
+*   **Cache (`redis`)**: Required by SearXNG for efficient result caching.
 
-## 🛡️ The Watchdog (`launcher.py`)
+### Key Features:
+*   **Memory Isolation**: Agent state (`scratchpad.md`, `.agent_state.json`) is stored in a dedicated host bind mount (`../ouroboros_memory`), physically separating memory from source code.
+*   **Redaction Layer**: Core redaction filters scrub secrets (Telegram/GitHub tokens) from all logs and thoughts.
 
-The `launcher.py` is the immutable supervisor of the agent's lifecycle. It acts as the interface between the host system and the Docker environment.
+## 🛡️ The Watchdog (`watchdog.py`)
 
-### Key Responsibilities:
-1.  **Bootstrapping**: Sets up the Docker environment and builds the agent container.
-2.  **Lifecycle Management**: Starts the agent and monitors its execution loop.
-3.  **Lazarus Protocol (External)**: If the agent crashes (non-zero exit code), the watchdog captures the crash logs and restarts the container, ensuring continuity.
-4.  **Health Monitoring**: Streams agent logs to the host console for real-time observability.
+The `watchdog.py` script is the definitive host-side supervisor. It manages the container lifecycle and acts as the **ultimate safety net**.
 
-## ⚙️ Setup & Configuration
+**Responsibilities:**
+1.  **Bootstrapping**: Starts and monitors the entire Docker stack.
+2.  **Health Checks**: Detects if the agent is failing to stay "healthy" (up for >30s).
+3.  **Lazarus Reset**: If the agent crashes repeatedly (due to a broken brain/syntax error), the watchdog automatically performs a `git reset --hard HEAD~1` to revert to the last stable state.
 
-### 1. Model Management
-Use the provided script to download the optimized Mistral models:
+## ⚙️ Setup & Deployment
+
+### 1. Model Preparation
+Use the provided script to download the optimized Kimi-VL GGUF model:
 ```bash
 ./download_model.sh
 ```
 
-### 2. Environment Secrets
-All sensitive configuration (Tokens, Keys) must be placed in `ouroboros_runtime/.env`. The runtime passes these to the agent as environment variables, keeping them out of the agent's local filesystem and git history.
+### 2. Environment Configuration
+Create an `ouroboros_runtime/.env` file and populate it with your secrets:
+- `TELEGRAM_BOT_TOKEN`: Your Telegram API key.
+- `GITHUB_TOKEN`: Your Personal Access Token for git operations.
 
-### 3. GPU Acceleration
-If you are running on hardware with a GPU, use the helper script to update your Docker configuration:
+### 3. Execution
+To start Ouroboros with the Watchdog:
 ```bash
-python3 update_docker_gpu.py
+python3 watchdog.py
 ```
-
-## 🛠️ Management Commands
-
-A `Makefile` is provided for common maintenance tasks:
-
-| Command | Description |
-|---|---|
-| `make test` | Run minimalist smoke tests |
-| `make health` | Compute complexity metrics of the codebase |
-| `make clean` | Purge Python cache and temporary files |
 
 ## 🔗 Related Repositories
 *   **[Ouroboros Agent](https://github.com/Redna/ouroboros)**: The autonomous "soul" that lives inside this runtime.
 
-## 🌿 Branching Strategy (Agent Repository)
-
-The Ouroboros Agent repository uses a multi-branch strategy to balance stability with autonomous evolution:
-
-| Branch | Status | Purpose |
-|---|---|---|
-| **`main`** | 💎 Pristine | The definitive, human-verified baseline of the True Seed architecture. |
-| **`true-seed`** | 🌱 Starting Point | A clean, documented baseline used to initialize a new agent life cycle. |
-| **`ouroboros`** | 🧬 Evolution | The "active" branch where the agent lives, thinks, and modifies its own code. |
-
-**Recommended Workflow:**
-1.  **Reset:** To start a fresh evolution, checkout `true-seed` into a new `ouroboros` branch.
-2.  **Evolve:** Let the agent run and modify the `ouroboros` branch.
-3.  **Snapshot:** Periodically merge successful evolutions back to `main` only after human review.
-
 ---
-*Last Updated: March 2026 - Runtime finalized for True Seed v1.0.*
+*Last Updated: March 2026 - Runtime unified and audited for True Seed v1.5.*

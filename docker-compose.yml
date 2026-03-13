@@ -16,13 +16,85 @@ services:
       - VLLM_BASE_URL=http://llamacpp:8080/v1
     volumes:
       - ouroboros_data:/drive
+      - ../ouroboros_memory:/memory
       - ../ouroboros_agent:/app
     networks:
       - ouroboros_net
+    depends_on:
+      - llamacpp
+      - searxng
+
+  llamacpp:
+    image: rocm/llama.cpp:llama.cpp-b6652.amd0_rocm7.0.0_ubuntu22.04_server
+    container_name: llamacpp
+    restart: unless-stopped
+    privileged: true
+    shm_size: 16G
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    volumes:
+      - ./models:/models
+    ports:
+      - 8000:8080
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=11.0.2
+      - HIP_FORCE_DEV_KERNARG=1
+      - HSA_ENABLE_SDMA=0
+      - HIP_VISIBLE_DEVICES=0
+    command:
+      - -m
+      - /models/Kimi-VL-A3B-Instruct.Q4_K_M.gguf
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -ngl
+      - "99"
+      - -c
+      - "131072"
+      - --no-mmap
+      - --jinja
+    networks:
+      - ouroboros_net
+
+  searxng:
+    container_name: searxng
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    networks:
+      - ouroboros_net
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    depends_on:
+      - redis
+
+  redis:
+    container_name: redis
+    image: docker.io/library/redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    restart: unless-stopped
+    networks:
+      - ouroboros_net
+    volumes:
+      - redis_data:/data
 
 networks:
   ouroboros_net:
-    external: true
+    driver: bridge
 
 volumes:
   ouroboros_data:
+  redis_data:
