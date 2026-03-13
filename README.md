@@ -55,5 +55,20 @@ A `Makefile` is provided for common maintenance tasks:
 ## 🔗 Related Repositories
 *   **[Ouroboros Agent](https://github.com/Redna/ouroboros)**: The autonomous "soul" that lives inside this runtime.
 
+## 🌿 Branching Strategy (Agent Repository)
+
+The Ouroboros Agent repository uses a multi-branch strategy to balance stability with autonomous evolution:
+
+| Branch | Status | Purpose |
+|---|---|---|
+| **`main`** | 💎 Pristine | The definitive, human-verified baseline of the True Seed architecture. |
+| **`true-seed`** | 🌱 Starting Point | A clean, documented baseline used to initialize a new agent life cycle. |
+| **`ouroboros`** | 🧬 Evolution | The "active" branch where the agent lives, thinks, and modifies its own code. |
+
+**Recommended Workflow:**
+1.  **Reset:** To start a fresh evolution, checkout `true-seed` into a new `ouroboros` branch.
+2.  **Evolve:** Let the agent run and modify the `ouroboros` branch.
+3.  **Snapshot:** Periodically merge successful evolutions back to `main` only after human review.
+
 ---
 *Last Updated: March 2026 - Runtime finalized for True Seed v1.0.*
