@@ -9,13 +9,11 @@ services:
       - seccomp:unconfined
     env_file: .env
     environment:
-      - OUROBOROS_DRIVE_ROOT=/drive
       - OUROBOROS_REPO_DIR=/app
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - VLLM_BASE_URL=http://llamacpp:8080/v1
     volumes:
-      - ouroboros_data:/drive
       - ../ouroboros_memory:/memory
       - ../ouroboros_agent:/app
     networks:
@@ -96,5 +94,4 @@ networks:
     driver: bridge
 
 volumes:
-  ouroboros_data:
   redis_data:
