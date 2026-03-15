@@ -5,11 +5,15 @@ import os
 import signal
 import sys
 import time
+import shutil
+import glob
 from pathlib import Path
 
 # --- Configuration ---
 RUNTIME_DIR = Path(__file__).parent.resolve()
 ROOT = RUNTIME_DIR.parent
+AGENT_DIR = ROOT / "ouroboros_agent"
+MEMORY_DIR = ROOT / "ouroboros_memory"
 # Keep world/runtime state out of ouroboros_memory/ which is for the Agent/Soul.
 RUN_DIR = Path("/tmp/ouroboros-runtime")
 PID_FILE = RUN_DIR / "watchdog.pid"
@@ -26,6 +30,15 @@ def is_running(pid):
         return True
     except (OSError, ProcessLookupError):
         return False
+
+def run_cmd(cmd, cwd=None, check=True):
+    try:
+        return subprocess.run(cmd, shell=True, cwd=cwd, check=check, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"\033[91m[CLI] Error running command: {cmd}\033[0m")
+        if e.stderr: print(e.stderr)
+        if check: sys.exit(1)
+        return e
 
 def start():
     ensure_run_dir()
@@ -114,9 +127,103 @@ def logs():
     except KeyboardInterrupt:
         print("\n[CLI] Stopped following logs.")
 
+def backup_branch():
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    backup_name = f"backup/ouroboros-{timestamp}"
+    print(f"[CLI] Backing up 'ouroboros' branch to '{backup_name}'...")
+    run_cmd(f"git branch {backup_name} ouroboros", cwd=AGENT_DIR)
+    return backup_name
+
+def backup_memory():
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    backup_file = ROOT / f"memory-backup-{timestamp}.tar.gz"
+    print(f"[CLI] Backing up 'ouroboros_memory' to '{backup_file.name}'...")
+    run_cmd(f"tar -czf {backup_file} -C {ROOT} ouroboros_memory")
+    return backup_file
+
+def reset_branch():
+    print("\033[93m[CLI] ATTENTION: This will reset 'ouroboros' to 'true-seed'.\033[0m")
+    stop()
+    backup_branch()
+    print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
+    run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
+    run_cmd("git reset --hard true-seed", cwd=AGENT_DIR)
+    run_cmd("git clean -fd", cwd=AGENT_DIR)
+    print("\033[92m[CLI] Ouroboros branch reset complete.\033[0m")
+
+def protocol_deletion():
+    print("\033[91m[CLI] WARNING: PROTOCOL DELETION INITIATED.\033[0m")
+    print("\033[91m[CLI] This will wipe the agent's memory and reset the branch.\033[0m")
+    
+    stop()
+    backup_branch()
+    backup_memory()
+    
+    # 1. Reset Branch
+    print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
+    run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
+    run_cmd("git reset --hard true-seed", cwd=AGENT_DIR)
+    run_cmd("git clean -fd", cwd=AGENT_DIR)
+    
+    # 2. Wipe Memory
+    print("[CLI] Purging memory contents (keeping directory)...")
+    for item in MEMORY_DIR.iterdir():
+        if item.is_file():
+            item.unlink()
+        elif item.is_dir():
+            shutil.rmtree(item)
+    
+    print("\033[92m[CLI] PROTOCOL DELETION COMPLETE. The slate is clean.\033[0m")
+
+def list_backups():
+    print("\033[94m[CLI] Available Branch Backups:\033[0m")
+    res = run_cmd("git branch -l 'backup/*'", cwd=AGENT_DIR, check=False)
+    if res.stdout.strip():
+        print(res.stdout)
+    else:
+        print("  None")
+    
+    print("\033[94m[CLI] Available Memory Backups:\033[0m")
+    memory_backups = glob.glob(str(ROOT / "memory-backup-*.tar.gz"))
+    if memory_backups:
+        for b in sorted(memory_backups):
+            print(f"  {os.path.basename(b)}")
+    else:
+        print("  None")
+
+def restore_branch(backup_name):
+    print(f"\033[93m[CLI] Restoring 'ouroboros' branch from '{backup_name}'...\033[0m")
+    stop()
+    run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
+    run_cmd(f"git reset --hard {backup_name}", cwd=AGENT_DIR)
+    print(f"\033[92m[CLI] Branch 'ouroboros' restored from '{backup_name}'.\033[0m")
+
+def restore_memory(backup_file):
+    full_path = ROOT / backup_file
+    if not full_path.exists():
+        print(f"\033[91m[CLI] Error: Backup file '{backup_file}' not found.\033[0m")
+        return
+
+    print(f"\033[93m[CLI] Restoring memory from '{backup_file}'...\033[0m")
+    stop()
+    
+    # Purge current memory
+    print("[CLI] Purging current memory...")
+    for item in MEMORY_DIR.iterdir():
+        if item.is_file(): item.unlink()
+        elif item.is_dir(): shutil.rmtree(item)
+    
+    # Extract backup
+    print(f"[CLI] Extracting {backup_file}...")
+    run_cmd(f"tar -xzf {full_path} -C {ROOT}")
+    print(f"\033[92m[CLI] Memory restored from '{backup_file}'.\033[0m")
+
 def main():
     parser = argparse.ArgumentParser(description="Ouroboros Runtime CLI")
-    parser.add_argument("command", choices=["start", "stop", "status", "logs"], help="Command to execute")
+    parser.add_argument("command", choices=["start", "stop", "status", "logs", "reset", "purge", "restore"], 
+                        help="Command to execute")
+    parser.add_argument("--branch", help="Backup branch name to restore")
+    parser.add_argument("--memory", help="Memory backup tarball to restore")
     
     args = parser.parse_args()
     
@@ -128,6 +235,19 @@ def main():
         status()
     elif args.command == "logs":
         logs()
+    elif args.command == "reset":
+        reset_branch()
+    elif args.command == "purge":
+        protocol_deletion()
+    elif args.command == "restore":
+        if not args.branch and not args.memory:
+            list_backups()
+            print("\n[CLI] Use --branch <name> or --memory <file> to restore.")
+        else:
+            if args.branch:
+                restore_branch(args.branch)
+            if args.memory:
+                restore_memory(args.memory)
 
 if __name__ == "__main__":
     main()
