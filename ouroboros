@@ -78,7 +78,7 @@ def start():
     PID_FILE.write_text(str(proc.pid))
     print(f"\033[92m[CLI] Watchdog started (PID: {proc.pid}).\033[0m")
     print(f"[CLI] Logs: {LOG_FILE}")
-    print("[CLI] Use 'ouroboros logs' to follow the output.")
+    print("[CLI] Use 'ouroboros logs -f' to follow the output.")
 
 def stop():
     if not PID_FILE.exists():
@@ -124,16 +124,19 @@ def status():
             pass
     print("\033[91m[CLI] Ouroboros Watchdog is NOT running.\033[0m")
 
-def logs():
+def logs(follow=False):
     if not LOG_FILE.exists():
         print(f"[CLI] Log file {LOG_FILE} does not exist.")
         return
     
-    print("\033[94m[CLI] Following logs (Press Ctrl+C to stop following)...\033[0m")
-    try:
-        subprocess.run(["tail", "-f", str(LOG_FILE)])
-    except KeyboardInterrupt:
-        print("\n[CLI] Stopped following logs.")
+    if follow:
+        print("\033[94m[CLI] Following logs (Press Ctrl+C to stop following)...\033[0m")
+        try:
+            subprocess.run(["tail", "-f", str(LOG_FILE)])
+        except KeyboardInterrupt:
+            print("\n[CLI] Stopped following logs.")
+    else:
+        subprocess.run(["tail", "-n", "50", str(LOG_FILE)])
 
 def backup_branch():
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -240,6 +243,7 @@ def main():
     parser = argparse.ArgumentParser(description="Ouroboros Runtime CLI")
     parser.add_argument("command", choices=["start", "stop", "status", "logs", "reset", "purge", "restore"], 
                         help="Command to execute")
+    parser.add_argument("-f", "--follow", action="store_true", help="Follow log output (for 'logs' command)")
     parser.add_argument("--branch", help="Backup branch name to restore")
     parser.add_argument("--memory", help="Memory backup tarball to restore")
     
@@ -252,7 +256,7 @@ def main():
     elif args.command == "status":
         status()
     elif args.command == "logs":
-        logs()
+        logs(follow=args.follow)
     elif args.command == "reset":
         reset_branch()
     elif args.command == "purge":
