@@ -40,6 +40,14 @@ def run_cmd(cmd, cwd=None, check=True):
         if check: sys.exit(1)
         return e
 
+def confirm(prompt="Are you sure you want to proceed?"):
+    """Ask for user confirmation."""
+    try:
+        answer = input(f"{prompt} [y/N]: ").lower().strip()
+        return answer == 'y'
+    except EOFError:
+        return False
+
 def start():
     ensure_run_dir()
     if PID_FILE.exists():
@@ -143,21 +151,30 @@ def backup_memory():
 
 def reset_branch():
     print("\033[93m[CLI] ATTENTION: This will reset 'ouroboros' to 'true-seed'.\033[0m")
+    if not confirm("Are you sure you want to reset the branch?"):
+        print("[CLI] Operation cancelled.")
+        return
+
     stop()
-    backup_branch()
+    backup_name = backup_branch()
     print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
     run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
     run_cmd("git reset --hard true-seed", cwd=AGENT_DIR)
     run_cmd("git clean -fd", cwd=AGENT_DIR)
     print("\033[92m[CLI] Ouroboros branch reset complete.\033[0m")
+    print(f"[CLI] HINT: To undo, run: ./ouroboros restore --branch {backup_name}")
 
 def protocol_deletion():
     print("\033[91m[CLI] WARNING: PROTOCOL DELETION INITIATED.\033[0m")
     print("\033[91m[CLI] This will wipe the agent's memory and reset the branch.\033[0m")
     
+    if not confirm("Are you ABSOLUTELY sure you want to PURGE the agent?"):
+        print("[CLI] Operation cancelled.")
+        return
+
     stop()
-    backup_branch()
-    backup_memory()
+    backup_name = backup_branch()
+    backup_file = backup_memory()
     
     # 1. Reset Branch
     print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
@@ -174,6 +191,7 @@ def protocol_deletion():
             shutil.rmtree(item)
     
     print("\033[92m[CLI] PROTOCOL DELETION COMPLETE. The slate is clean.\033[0m")
+    print(f"[CLI] HINT: To restore, run: ./ouroboros restore --branch {backup_name} --memory {backup_file.name}")
 
 def list_backups():
     print("\033[94m[CLI] Available Branch Backups:\033[0m")
