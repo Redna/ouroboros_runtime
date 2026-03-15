@@ -23,21 +23,33 @@ The `watchdog.py` script is the definitive host-side supervisor. It manages the 
 2.  **Phoenix Reset**: If the agent crashes or loops, the watchdog captures container stderr to `/memory/last_crash.log` and performs a `git reset --hard HEAD~1`.
 3.  **Recursive Recovery**: Performs multi-level reverts if the agent fails to reach a 60-second stability threshold.
 
-## ⚙️ Setup & Deployment
+## ⚙️ Ouroboros Runtime CLI (`ouroboros`)
 
-### 1. Environment Configuration
-Create an `ouroboros_runtime/.env` file:
-- `TELEGRAM_BOT_TOKEN`: Your bot API key.
-- `GITHUB_TOKEN`: Your PAT for git synchronization.
+The `ouroboros` script is the primary tool for managing the supervised Ouroboros stack. It handles background process management for the **Watchdog**, automated backups, and protocol-level resets.
 
-### 2. Execution
-To start the supervised Ouroboros stack:
+### Commands:
+| Command | Description |
+|---|---|
+| **`./ouroboros start`** | Starts the Watchdog in the background. |
+| **`./ouroboros stop`** | Gracefully stops the Watchdog and all Docker containers. |
+| **`./ouroboros status`** | Checks if the Watchdog process is currently running. |
+| **`./ouroboros logs`** | Follows the runtime logs (tail -f). |
+| **`./ouroboros reset`** | Backs up the current branch and resets `ouroboros` to `true-seed`. |
+| **`./ouroboros purge`** | **PROTOCOL DELETION**: Backs up and wipes all memory, resets branch to `true-seed`. |
+| **`./ouroboros restore`** | Lists available branch and memory backups. |
+| **`./ouroboros restore --branch <name> --memory <file>`** | Restores the agent to a specific backup state. |
+
+### Usage:
+To start the supervised Ouroboros stack in the background:
 ```bash
 cd ouroboros_runtime
-python3 watchdog.py
+./ouroboros start
 ```
 
-## 🛡️ Identity Integrity
+Logs and process state (PID) are stored in `/tmp/ouroboros-runtime/` to maintain **Memory Isolation** (keeping the `ouroboros_memory/` volume reserved for the Agent).
+
+## 🛡️ The Watchdog (`watchdog.py`)
+
 The runtime enforces volume isolation. Source code lives in `/app`, while ephemeral state lives in `/memory`. This ensures that even a total code reset preserves the agent's identity and conversational history.
 
 ---
