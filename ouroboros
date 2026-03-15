@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+import argparse
+import subprocess
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+# --- Configuration ---
+RUNTIME_DIR = Path(__file__).parent.resolve()
+ROOT = RUNTIME_DIR.parent
+# Keep world/runtime state out of ouroboros_memory/ which is for the Agent/Soul.
+RUN_DIR = Path("/tmp/ouroboros-runtime")
+PID_FILE = RUN_DIR / "watchdog.pid"
+LOG_FILE = RUN_DIR / "watchdog.log"
+WATCHDOG_SCRIPT = RUNTIME_DIR / "watchdog.py"
+
+def ensure_run_dir():
+    if not RUN_DIR.exists():
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+def is_running(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+def start():
+    ensure_run_dir()
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text())
+            if is_running(pid):
+                print(f"Ouroboros Watchdog is already running (PID: {pid}).")
+                return
+            else:
+                PID_FILE.unlink()
+        except ValueError:
+            PID_FILE.unlink()
+
+    print("\033[94m[CLI] Starting Ouroboros Watchdog in background...\033[0m")
+    
+    # Open log file in append mode
+    log_f = open(LOG_FILE, "a", encoding="utf-8")
+    
+    # Start the watchdog in a new session to avoid being killed when this CLI exits
+    proc = subprocess.Popen(
+        [sys.executable, str(WATCHDOG_SCRIPT)],
+        stdout=log_f,
+        stderr=subprocess.STDOUT,
+        cwd=str(RUNTIME_DIR),
+        start_new_session=True
+    )
+    
+    PID_FILE.write_text(str(proc.pid))
+    print(f"\033[92m[CLI] Watchdog started (PID: {proc.pid}).\033[0m")
+    print(f"[CLI] Logs: {LOG_FILE}")
+    print("[CLI] Use 'ouroboros logs' to follow the output.")
+
+def stop():
+    if not PID_FILE.exists():
+        print("[CLI] Ouroboros Watchdog is not running (no PID file).")
+        print("[CLI] Ensuring containers are down...")
+        subprocess.run(["docker", "compose", "down"], cwd=str(RUNTIME_DIR))
+        return
+
+    try:
+        pid = int(PID_FILE.read_text())
+        if is_running(pid):
+            print(f"\033[93m[CLI] Stopping Watchdog (PID: {pid})...\033[0m")
+            os.kill(pid, signal.SIGINT)
+            
+            timeout = 15
+            start_wait = time.time()
+            while is_running(pid) and (time.time() - start_wait < timeout):
+                time.sleep(0.5)
+            
+            if is_running(pid):
+                print("[CLI] Watchdog did not exit gracefully, killing it...")
+                os.kill(pid, signal.SIGKILL)
+        else:
+            print(f"[CLI] Watchdog process (PID: {pid}) is already gone.")
+    except (ValueError, OSError) as e:
+        print(f"[CLI] Error during stop: {e}")
+    finally:
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+
+    print("[CLI] Ensuring all containers are stopped...")
+    subprocess.run(["docker", "compose", "down"], cwd=str(RUNTIME_DIR))
+    print("\033[92m[CLI] Ouroboros stopped.\033[0m")
+
+def status():
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text())
+            if is_running(pid):
+                print(f"\033[92m[CLI] Ouroboros Watchdog is running (PID: {pid}).\033[0m")
+                return
+        except ValueError:
+            pass
+    print("\033[91m[CLI] Ouroboros Watchdog is NOT running.\033[0m")
+
+def logs():
+    if not LOG_FILE.exists():
+        print(f"[CLI] Log file {LOG_FILE} does not exist.")
+        return
+    
+    print("\033[94m[CLI] Following logs (Press Ctrl+C to stop following)...\033[0m")
+    try:
+        subprocess.run(["tail", "-f", str(LOG_FILE)])
+    except KeyboardInterrupt:
+        print("\n[CLI] Stopped following logs.")
+
+def main():
+    parser = argparse.ArgumentParser(description="Ouroboros Runtime CLI")
+    parser.add_argument("command", choices=["start", "stop", "status", "logs"], help="Command to execute")
+    
+    args = parser.parse_args()
+    
+    if args.command == "start":
+        start()
+    elif args.command == "stop":
+        stop()
+    elif args.command == "status":
+        status()
+    elif args.command == "logs":
+        logs()
+
+if __name__ == "__main__":
+    main()

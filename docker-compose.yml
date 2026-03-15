@@ -50,7 +50,7 @@ services:
       - HIP_VISIBLE_DEVICES=0
     command:
       - -m
-      - /models/Kimi-VL-A3B-Instruct.Q4_K_M.gguf
+      - /models/mistralai_Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf
       - --host
       - 0.0.0.0
       - --port
@@ -58,7 +58,11 @@ services:
       - -ngl
       - "99"
       - -c
-      - "131072"
+      - "65536"           # 64k Context Window
+      - --cache-type-k 
+      - q8_0              # 8-bit KV Cache compression
+      - --cache-type-v
+      - q8_0              # 8-bit KV Cache compression
       - --no-mmap
       - --jinja
     networks:
