@@ -1,0 +1,28 @@
+# Use a lightweight Python base image
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# Install uv for fast package management
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY dashboard/requirements.txt ./
+
+# Install dependencies
+RUN uv pip install --system -r requirements.txt
+
+# Copy dashboard code
+COPY dashboard/ .
+
+# Expose the dashboard port
+EXPOSE 8000
+
+# Launch the dashboard server
+CMD ["python", "app.py"]

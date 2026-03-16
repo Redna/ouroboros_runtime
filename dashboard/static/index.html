@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ouroboros Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Ouroboros</h1>
+        <div id="runtime-status" class="status-badge">Runtime: <span id="runtime-indicator">Checking...</span></div>
+    </header>
+
+    <main>
+        <!-- Metrics Section -->
+        <section id="metrics" class="card-container">
+            <div class="card">
+                <h3>Tokens</h3>
+                <p id="total-tokens">0</p>
+                <small>Global Consumption</small>
+            </div>
+            <div class="card">
+                <h3>Context</h3>
+                <p id="context-size">0</p>
+                <small>Last Context Size</small>
+            </div>
+            <div class="card">
+                <h3>Efficiency</h3>
+                <p id="efficiency">0%</p>
+                <small>Out/In Ratio</small>
+            </div>
+        </section>
+
+        <!-- Current Task Section -->
+        <section id="current-task" class="card single-card">
+            <h2>Current Task</h2>
+            <div id="task-info">
+                <p id="task-description">No active task</p>
+                <div class="progress-bar-container">
+                    <div id="task-progress" class="progress-bar"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Experience Logs Section -->
+        <section id="experience" class="card single-card">
+            <h2>Experiencing</h2>
+            <div id="log-container" class="scroll-box">
+                <!-- Logs will be injected here -->
+            </div>
+        </section>
+
+        <!-- Task Queue Section -->
+        <section id="queue" class="card single-card">
+            <h2>Task Queue</h2>
+            <ul id="task-list">
+                <!-- Queue items will be injected here -->
+            </ul>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 Ouroboros Project | v3.1</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

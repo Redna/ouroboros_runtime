@@ -1,0 +1,192 @@
+:root {
+    --bg-color: #0d0d0d;
+    --card-bg: #1a1a1a;
+    --text-color: #e0e0e0;
+    --accent-color: #00ffcc; /* Ouroboros Cyan */
+    --accent-secondary: #ff00ff; /* Phoenix Magenta */
+    --border-radius: 8px;
+    --spacing: 16px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    padding-bottom: 40px;
+}
+
+header {
+    background-color: var(--card-bg);
+    padding: var(--spacing);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #333;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+header h1 {
+    font-size: 1.5rem;
+    color: var(--accent-color);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.status-badge {
+    font-size: 0.8rem;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: #222;
+    border: 1px solid #444;
+}
+
+#runtime-indicator {
+    font-weight: bold;
+}
+
+.online { color: #00ff00; }
+.offline { color: #ff0000; }
+
+main {
+    padding: var(--spacing);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing);
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.card-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--spacing);
+}
+
+.card {
+    background-color: var(--card-bg);
+    padding: var(--spacing);
+    border-radius: var(--border-radius);
+    border: 1px solid #222;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+
+.card h3 {
+    font-size: 0.9rem;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.card p {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.card small {
+    font-size: 0.7rem;
+    color: #666;
+}
+
+.single-card h2 {
+    font-size: 1.1rem;
+    margin-bottom: 12px;
+    color: var(--accent-color);
+    border-bottom: 1px solid #333;
+    padding-bottom: 8px;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    height: 8px;
+    background: #222;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-color), var(--accent-secondary));
+    width: 0%;
+    transition: width 0.5s ease;
+}
+
+/* Scroll Box for Logs */
+.scroll-box {
+    height: 300px;
+    overflow-y: auto;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+    background: #050505;
+    padding: 10px;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column-reverse; /* Latest logs at top or bottom? User preference. Let's do normal top-to-bottom. */
+}
+
+/* Log Entries */
+.log-entry {
+    margin-bottom: 8px;
+    border-bottom: 1px solid #111;
+    padding-bottom: 4px;
+}
+
+.role-user { color: #5bc0de; }
+.role-assistant { color: #f0ad4e; }
+.role-tool { color: #5cb85c; }
+.log-content { word-break: break-all; }
+
+/* Queue List */
+#task-list {
+    list-style: none;
+}
+
+.task-item {
+    background: #222;
+    margin-bottom: 8px;
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.task-priority {
+    font-weight: bold;
+    color: var(--accent-secondary);
+    margin-right: 8px;
+}
+
+footer {
+    text-align: center;
+    padding: 20px;
+    font-size: 0.8rem;
+    color: #444;
+}
+
+/* Responsive Overrides */
+@media (min-width: 768px) {
+    main {
+        display: grid;
+        grid-template-columns: 1fr 1.5fr;
+        grid-template-areas: 
+            "metrics metrics"
+            "task experience"
+            "queue experience";
+    }
+    
+    #metrics { grid-area: metrics; }
+    #current-task { grid-area: task; }
+    #experience { grid-area: experience; }
+    #queue { grid-area: queue; }
+    
+    .scroll-box {
+        height: 600px;
+    }
+}

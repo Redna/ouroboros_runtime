@@ -78,6 +78,7 @@ def start():
     PID_FILE.write_text(str(proc.pid))
     print(f"\033[92m[CLI] Watchdog started (PID: {proc.pid}).\033[0m")
     print(f"[CLI] Logs: {LOG_FILE}")
+    print(f"[CLI] Dashboard: http://localhost:8082")
     print("[CLI] Use 'ouroboros logs -f' to follow the output.")
 
 def stop():

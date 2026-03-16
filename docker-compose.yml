@@ -93,6 +93,21 @@ services:
     volumes:
       - redis_data:/data
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: ouroboros_dashboard
+    restart: unless-stopped
+    ports:
+      - "8082:8000"
+    volumes:
+      - ../ouroboros_memory:/memory:ro
+    networks:
+      - ouroboros_net
+    depends_on:
+      - ouroboros
+
 networks:
   ouroboros_net:
     driver: bridge
