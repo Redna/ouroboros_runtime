@@ -23,7 +23,7 @@ services:
       - searxng
 
   llamacpp:
-    image: rocm/llama.cpp:llama.cpp-b6652.amd0_rocm7.0.0_ubuntu22.04_server
+    image: ghcr.io/ggml-org/llama.cpp:server-rocm
     container_name: llamacpp
     restart: unless-stopped
     privileged: true
@@ -50,7 +50,7 @@ services:
       - HIP_VISIBLE_DEVICES=0
     command:
       - -m
-      - /models/mistralai_Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf
+      - /models/Qwen3.5-27B-Q4_K_M.gguf
       - --host
       - 0.0.0.0
       - --port
@@ -59,12 +59,13 @@ services:
       - "99"
       - -c
       - "65536"           # 64k Context Window
+      - -fa
+      - "1"               # Flash Attention
       - --cache-type-k 
       - q8_0              # 8-bit KV Cache compression
       - --cache-type-v
       - q8_0              # 8-bit KV Cache compression
       - --no-mmap
-      - --jinja
     networks:
       - ouroboros_net
 
