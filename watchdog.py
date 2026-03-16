@@ -67,8 +67,8 @@ import json
 # Stats file
 STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
 
-def increment_restart_count():
-    stats = {"restart_count": 0}
+def update_runtime_stats():
+    stats = {"restart_count": 0, "last_start_time": time.time()}
     if STATS_FILE.exists():
         try:
             with open(STATS_FILE, "r") as f:
@@ -76,6 +76,7 @@ def increment_restart_count():
         except:
             pass
     stats["restart_count"] = stats.get("restart_count", 0) + 1
+    stats["last_start_time"] = time.time()
     with open(STATS_FILE, "w") as f:
         json.dump(stats, f)
 
@@ -84,7 +85,7 @@ def main():
     
     failure_count = 0
     while True:
-        increment_restart_count()
+        update_runtime_stats()
         start_time = time.time()
         print(f"\n[WATCHDOG] Starting Unified Ouroboros Stack (Attempt {failure_count + 1})...")
         

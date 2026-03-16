@@ -1,16 +1,14 @@
+let lastStartTime = 0;
+
 function showSection(sectionId) {
-    // Update buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
         if (btn.innerText.toLowerCase() === sectionId) btn.classList.add('active');
     });
-    // Update content
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
     document.getElementById(`section-${sectionId}`).classList.add('active');
-    
-    // Immediate fetch for non-polled sections
     if (sectionId === 'identity') updateIdentity();
     if (sectionId === 'history') updateHistory();
 }
@@ -25,6 +23,8 @@ async function updateStatus() {
         document.getElementById('git-commits').innerText = data.git?.commits || 0;
         document.getElementById('git-changes').innerText = data.git?.changes || 0;
         
+        lastStartTime = data.last_start_time;
+        
         document.getElementById('runtime-indicator').innerText = 'Online';
         document.getElementById('runtime-indicator').className = 'online';
     } catch (err) {
@@ -33,13 +33,28 @@ async function updateStatus() {
     }
 }
 
+function updateUptime() {
+    if (lastStartTime === 0) return;
+    const now = Math.floor(Date.now() / 1000);
+    const diff = now - Math.floor(lastStartTime);
+    if (diff < 0) return;
+    
+    document.getElementById('uptime-display').innerText = formatDuration(diff);
+}
+
+function formatDuration(seconds) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return [h, m, s].map(v => v < 10 ? "0" + v : v).join(":");
+}
+
 async function updateTasks() {
     try {
         const response = await fetch('/api/tasks');
         const tasks = await response.json();
         const taskList = document.getElementById('task-list');
         taskList.innerHTML = '';
-        
         if (tasks.length > 0) {
             document.getElementById('task-description').innerText = tasks[0].description;
             tasks.forEach(task => {
@@ -58,7 +73,6 @@ async function updateLogs() {
         const logs = await response.json();
         const logContainer = document.getElementById('log-container');
         logContainer.innerHTML = '';
-        
         logs.forEach(entry => {
             const div = document.createElement('div');
             div.className = 'log-entry';
@@ -75,9 +89,7 @@ async function updateIdentity() {
         const response = await fetch('/api/identity');
         const data = await response.json();
         document.getElementById('identity-content').innerHTML = data.html;
-    } catch (err) {
-        document.getElementById('identity-content').innerText = 'Failed to load identity.';
-    }
+    } catch (err) {}
 }
 
 async function updateHistory() {
@@ -86,7 +98,6 @@ async function updateHistory() {
         const history = await response.json();
         const container = document.getElementById('history-container');
         container.innerHTML = '';
-        
         history.forEach(msg => {
             const div = document.createElement('div');
             div.className = 'log-entry';
@@ -94,9 +105,7 @@ async function updateHistory() {
             container.appendChild(div);
         });
         container.scrollTop = container.scrollHeight;
-    } catch (err) {
-        document.getElementById('history-container').innerText = 'Failed to load history.';
-    }
+    } catch (err) {}
 }
 
 function escapeHtml(text) {
@@ -109,11 +118,11 @@ function init() {
     updateStatus();
     updateTasks();
     updateLogs();
-    setInterval(() => {
-        updateStatus();
-        updateTasks();
-        updateLogs();
-    }, 5000);
+    
+    setInterval(updateStatus, 5000);
+    setInterval(updateTasks, 5000);
+    setInterval(updateLogs, 5000);
+    setInterval(updateUptime, 1000);
 }
 
 document.addEventListener('DOMContentLoaded', init);

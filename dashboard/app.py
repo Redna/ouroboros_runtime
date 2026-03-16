@@ -53,8 +53,10 @@ async def get_status():
         with open(stats_file, "r") as f:
             stats = json.load(f)
             data["restarts"] = stats.get("restart_count", 0)
+            data["last_start_time"] = stats.get("last_start_time", 0)
     else:
         data["restarts"] = 0
+        data["last_start_time"] = 0
         
     git_data = get_git_stats()
     data["git"] = git_data
