@@ -60,11 +60,31 @@ def trigger_lazarus_reset(reason="Startup failure"):
         f.write(f"Reason: {reason}\n")
     print("[WATCHDOG] Phoenix Reset complete. Restarting stack...")
 
+import json
+
+# ... existing imports ...
+
+# Stats file
+STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
+
+def increment_restart_count():
+    stats = {"restart_count": 0}
+    if STATS_FILE.exists():
+        try:
+            with open(STATS_FILE, "r") as f:
+                stats = json.load(f)
+        except:
+            pass
+    stats["restart_count"] = stats.get("restart_count", 0) + 1
+    with open(STATS_FILE, "w") as f:
+        json.dump(stats, f)
+
 def main():
     print("\033[94m[WATCHDOG] Ouroboros Watchdog v1.0 Initialized.\033[0m")
     
     failure_count = 0
     while True:
+        increment_restart_count()
         start_time = time.time()
         print(f"\n[WATCHDOG] Starting Unified Ouroboros Stack (Attempt {failure_count + 1})...")
         

@@ -12,52 +12,77 @@
         <div id="runtime-status" class="status-badge">Runtime: <span id="runtime-indicator">Checking...</span></div>
     </header>
 
+    <nav class="tabs">
+        <button class="tab-btn active" onclick="showSection('overview')">Overview</button>
+        <button class="tab-btn" onclick="showSection('identity')">Identity</button>
+        <button class="tab-btn" onclick="showSection('history')">History</button>
+    </nav>
+
     <main>
-        <!-- Metrics Section -->
-        <section id="metrics" class="card-container">
-            <div class="card">
-                <h3>Tokens</h3>
-                <p id="total-tokens">0</p>
-                <small>Global Consumption</small>
-            </div>
-            <div class="card">
-                <h3>Context</h3>
-                <p id="context-size">0</p>
-                <small>Last Context Size</small>
-            </div>
-            <div class="card">
-                <h3>Efficiency</h3>
-                <p id="efficiency">0%</p>
-                <small>Out/In Ratio</small>
-            </div>
-        </section>
-
-        <!-- Current Task Section -->
-        <section id="current-task" class="card single-card">
-            <h2>Current Task</h2>
-            <div id="task-info">
-                <p id="task-description">No active task</p>
-                <div class="progress-bar-container">
-                    <div id="task-progress" class="progress-bar"></div>
+        <!-- Overview Section -->
+        <div id="section-overview" class="tab-content active">
+            <section id="metrics" class="card-container">
+                <div class="card">
+                    <h3>Tokens</h3>
+                    <p id="total-tokens">0</p>
+                    <small>Consumed</small>
                 </div>
-            </div>
-        </section>
+                <div class="card">
+                    <h3>Restarts</h3>
+                    <p id="restart-count">0</p>
+                    <small>Lazarus Cycle</small>
+                </div>
+                <div class="card">
+                    <h3>Commits</h3>
+                    <p id="git-commits">0</p>
+                    <small>Evolution Steps</small>
+                </div>
+                <div class="card">
+                    <h3>Changes</h3>
+                    <p id="git-changes">0</p>
+                    <small>Uncommitted</small>
+                </div>
+            </section>
 
-        <!-- Experience Logs Section -->
-        <section id="experience" class="card single-card">
-            <h2>Experiencing</h2>
-            <div id="log-container" class="scroll-box">
-                <!-- Logs will be injected here -->
-            </div>
-        </section>
+            <section id="current-task" class="card single-card">
+                <h2>Current Task</h2>
+                <div id="task-info">
+                    <p id="task-description">No active task</p>
+                    <div class="progress-bar-container">
+                        <div id="task-progress" class="progress-bar"></div>
+                    </div>
+                </div>
+            </section>
 
-        <!-- Task Queue Section -->
-        <section id="queue" class="card single-card">
-            <h2>Task Queue</h2>
-            <ul id="task-list">
-                <!-- Queue items will be injected here -->
-            </ul>
-        </section>
+            <section id="experience" class="card single-card">
+                <h2>Experiencing</h2>
+                <div id="log-container" class="scroll-box"></div>
+            </section>
+        </div>
+
+        <!-- Identity Section -->
+        <div id="section-identity" class="tab-content">
+            <section class="card single-card">
+                <h2>The Soul of Ouroboros</h2>
+                <div id="identity-content" class="markdown-body">
+                    Loading identity...
+                </div>
+            </section>
+        </div>
+
+        <!-- History Section -->
+        <div id="section-history" class="tab-content">
+            <section class="card single-card">
+                <h2>Conversation History</h2>
+                <div id="history-container" class="history-box">
+                    Loading history...
+                </div>
+            </section>
+            <section id="queue" class="card single-card">
+                <h2>Task Queue</h2>
+                <ul id="task-list"></ul>
+            </section>
+        </div>
     </main>
 
     <footer>
