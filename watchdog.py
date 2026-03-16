@@ -72,8 +72,8 @@ def main():
         print("[WATCHDOG] Switching to 'ouroboros' branch...")
         run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
 
-        # Monitor the 'ouroboros' service specifically
-        exit_code = run_cmd("docker compose up --build --abort-on-container-exit ouroboros", cwd=RUNTIME_DIR)
+        # Monitor the entire stack (all services)
+        exit_code = run_cmd("docker compose up --build --abort-on-container-exit", cwd=RUNTIME_DIR)
         
         uptime = time.time() - start_time
         print(f"[WATCHDOG] Agent process ended. Uptime: {uptime:.1f}s | Exit Code: {exit_code}")
