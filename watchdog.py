@@ -15,7 +15,7 @@ from pathlib import Path
 
 # --- Configuration ---
 ROOT = Path(__file__).parent.parent.resolve()
-AGENT_DIR = ROOT / "ouroboros_agent"
+AGENT_DIR = ROOT / "ouroboros"
 RUNTIME_DIR = ROOT / "ouroboros_runtime"
 MEMORY_DIR = ROOT / "ouroboros_memory"
 SCRATCHPAD_PATH = MEMORY_DIR / "scratchpad.md"

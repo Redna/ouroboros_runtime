@@ -75,9 +75,10 @@ async function updateLogs() {
         logContainer.innerHTML = '';
         logs.forEach(entry => {
             const div = document.createElement('div');
-            div.className = 'log-entry';
+            const roleClass = entry.role.toLowerCase();
+            div.className = `log-entry role-${roleClass}`;
             const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
-            div.innerHTML = `<span class="role-${entry.role}">${entry.role.toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
+            div.innerHTML = `<span class="role-label">${entry.role.toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
             logContainer.appendChild(div);
         });
         logContainer.scrollTop = logContainer.scrollHeight;
@@ -85,27 +86,41 @@ async function updateLogs() {
 }
 
 async function updateIdentity() {
+    console.log("Updating identity...");
     try {
         const response = await fetch('/api/identity');
         const data = await response.json();
+        console.log("Identity data received:", data);
         document.getElementById('identity-content').innerHTML = data.html;
-    } catch (err) {}
+    } catch (err) {
+        console.error("Error updating identity:", err);
+    }
 }
 
 async function updateHistory() {
+    console.log("Updating history...");
     try {
         const response = await fetch('/api/history');
         const history = await response.json();
+        console.log("History data received:", history);
         const container = document.getElementById('history-container');
         container.innerHTML = '';
         history.forEach(msg => {
             const div = document.createElement('div');
-            div.className = 'log-entry';
-            div.innerHTML = `<span class="role-${msg.role}">${msg.role.toUpperCase()}:</span> <span>${escapeHtml(msg.content)}</span>`;
+            // Normalize role to lowercase for CSS class
+            let roleClass = msg.role.toLowerCase();
+            if (roleClass === 'ouroboros') roleClass = 'assistant';
+            
+            div.className = `log-entry role-${roleClass}`;
+            // Handle both msg.text (chat_history) and msg.content (task logs)
+            const textContent = msg.text || msg.content || '';
+            div.innerHTML = `<span class="role-label">${msg.role.toUpperCase()}:</span> <span>${escapeHtml(textContent)}</span>`;
             container.appendChild(div);
         });
         container.scrollTop = container.scrollHeight;
-    } catch (err) {}
+    } catch (err) {
+        console.error("Error updating history:", err);
+    }
 }
 
 function escapeHtml(text) {

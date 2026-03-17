@@ -161,11 +161,13 @@ main {
     margin-bottom: 12px;
     border-bottom: 1px solid #111;
     padding-bottom: 6px;
+    white-space: pre-wrap;
 }
 
-.role-user { color: #5bc0de; font-weight: bold; }
-.role-assistant { color: #f0ad4e; font-weight: bold; }
-.role-tool { color: #5cb85c; }
+.log-entry.role-user .role-label { color: #5bc0de; font-weight: bold; }
+.log-entry.role-assistant .role-label { color: #f0ad4e; font-weight: bold; }
+.log-entry.role-tool .role-label { color: #5cb85c; }
+.log-entry.role-ouroboros .role-label { color: #f0ad4e; font-weight: bold; }
 
 /* Markdown Styling */
 .markdown-body {

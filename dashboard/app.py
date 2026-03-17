@@ -12,7 +12,7 @@ app = FastAPI()
 
 # Configuration
 MEMORY_DIR = Path("/memory")
-AGENT_DIR = Path("/app") # Injected via docker-compose
+AGENT_DIR = Path("/agent_soul") # Injected via docker-compose
 DASHBOARD_DIR = Path(__file__).parent
 STATIC_DIR = DASHBOARD_DIR / "static"
 

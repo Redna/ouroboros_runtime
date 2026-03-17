@@ -143,7 +143,9 @@ services:
     ports:
       - "8082:8000"
     volumes:
+      - ./dashboard:/app
       - ../ouroboros_memory:/memory:ro
+      - ../ouroboros:/agent_soul:ro
     networks:
       - ouroboros_net
     depends_on:
