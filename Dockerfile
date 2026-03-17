@@ -25,13 +25,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh
 
 # Copy dependency files first for caching
-COPY ouroboros_agent/requirements.txt ./
+COPY ouroboros/requirements.txt ./
 
 # Install dependencies using uv system-wide
 RUN uv pip install --system -r requirements.txt
 
 # Copy the rest of the application (Agent's Body)
-COPY ouroboros_agent/ .
+COPY ouroboros/ .
 
 # Add the entrypoint script (from Runtime's World)
 COPY ouroboros_runtime/entrypoint.sh /usr/local/bin/entrypoint.sh
