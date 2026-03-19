@@ -68,6 +68,8 @@ import json
 STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
 
 def update_runtime_stats():
+    if not MEMORY_DIR.exists():
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     stats = {"restart_count": 0, "last_start_time": time.time()}
     if STATS_FILE.exists():
         try:

@@ -12,7 +12,7 @@ from pathlib import Path
 # --- Configuration ---
 RUNTIME_DIR = Path(__file__).parent.resolve()
 ROOT = RUNTIME_DIR.parent
-AGENT_DIR = ROOT / "ouroboros_agent"
+AGENT_DIR = ROOT / "ouroboros"
 MEMORY_DIR = ROOT / "ouroboros_memory"
 # Keep world/runtime state out of ouroboros_memory/ which is for the Agent/Soul.
 RUN_DIR = Path("/tmp/ouroboros-runtime")
@@ -150,6 +150,8 @@ def backup_memory():
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     backup_file = ROOT / f"memory-backup-{timestamp}.tar.gz"
     print(f"[CLI] Backing up 'ouroboros_memory' to '{backup_file.name}'...")
+    if not MEMORY_DIR.exists():
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     run_cmd(f"tar -czf {backup_file} -C {ROOT} ouroboros_memory")
     return backup_file
 
@@ -187,12 +189,16 @@ def protocol_deletion():
     run_cmd("git clean -fd", cwd=AGENT_DIR)
     
     # 2. Wipe Memory
-    print("[CLI] Purging memory contents (keeping directory)...")
-    for item in MEMORY_DIR.iterdir():
-        if item.is_file():
-            item.unlink()
-        elif item.is_dir():
-            shutil.rmtree(item)
+    if MEMORY_DIR.exists():
+        print("[CLI] Purging memory contents (keeping directory)...")
+        for item in MEMORY_DIR.iterdir():
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+    else:
+        print("[CLI] Memory directory does not exist, creating it...")
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     
     print("\033[92m[CLI] PROTOCOL DELETION COMPLETE. The slate is clean.\033[0m")
     print(f"[CLI] HINT: To restore, run: ./ouroboros restore --branch {backup_name} --memory {backup_file.name}")
@@ -230,10 +236,13 @@ def restore_memory(backup_file):
     stop()
     
     # Purge current memory
-    print("[CLI] Purging current memory...")
-    for item in MEMORY_DIR.iterdir():
-        if item.is_file(): item.unlink()
-        elif item.is_dir(): shutil.rmtree(item)
+    if MEMORY_DIR.exists():
+        print("[CLI] Purging current memory...")
+        for item in MEMORY_DIR.iterdir():
+            if item.is_file(): item.unlink()
+            elif item.is_dir(): shutil.rmtree(item)
+    else:
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     
     # Extract backup
     print(f"[CLI] Extracting {backup_file}...")
