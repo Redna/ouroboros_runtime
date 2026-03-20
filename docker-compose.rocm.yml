@@ -35,7 +35,7 @@ services:
       - -ngl
       - "99"
       - -c
-      - "16384"           # 16k Context Window
+      - "${OUROBOROS_CONTEXT_WINDOW:-16384}"
       - -fa
       - "1"               # Flash Attention
       - --cache-type-k
