@@ -6,7 +6,7 @@ services:
     container_name: ouroboros_agent
     restart: unless-stopped
     security_opt:
-      - seccomp:unconfined
+      - seccomp=unconfined
     env_file: .env
     environment:
       - OUROBOROS_REPO_DIR=/app
@@ -21,45 +21,6 @@ services:
     depends_on:
       - llamacpp
       - searxng
-
-  llamacpp:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    container_name: llamacpp
-    restart: unless-stopped
-    shm_size: 16G
-    cap_add:
-      - SYS_PTRACE
-    security_opt:
-      - seccomp=unconfined
-    ipc: host
-    volumes:
-      - ./models:/models
-    ports:
-      - 8000:8080
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
-    runtime: nvidia
-    command:
-      - -m
-      - /models/Qwen3.5-27B-Q4_K_M.gguf
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8080"
-      - -ngl
-      - "99"
-      - -c
-      - "65536"
-      - -fa
-      - "1"
-      - --cache-type-k
-      - q8_0
-      - --cache-type-v
-      - q8_0
-      - --no-mmap
-    networks:
-      - ouroboros_net
 
   searxng:
     container_name: searxng

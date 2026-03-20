@@ -12,7 +12,7 @@ from pathlib import Path
 # --- Configuration ---
 RUNTIME_DIR = Path(__file__).parent.resolve()
 ROOT = RUNTIME_DIR.parent
-AGENT_DIR = ROOT / "ouroboros_agent"
+AGENT_DIR = ROOT / "ouroboros"
 MEMORY_DIR = ROOT / "ouroboros_memory"
 # Keep world/runtime state out of ouroboros_memory/ which is for the Agent/Soul.
 RUN_DIR = Path("/tmp/ouroboros-runtime")
@@ -139,11 +139,25 @@ def logs(follow=False):
     else:
         subprocess.run(["tail", "-n", "50", str(LOG_FILE)])
 
-def backup_branch():
+def backup_branch(delete_original=False):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     backup_name = f"backup/ouroboros-{timestamp}"
+    
+    # Check if branch exists
+    res = run_cmd("git branch --list ouroboros", cwd=AGENT_DIR, check=False)
+    if not res.stdout.strip():
+        print("[CLI] No 'ouroboros' branch found to backup.")
+        return None
+
     print(f"[CLI] Backing up 'ouroboros' branch to '{backup_name}'...")
     run_cmd(f"git branch {backup_name} ouroboros", cwd=AGENT_DIR)
+    
+    if delete_original:
+        print("[CLI] Deleting original 'ouroboros' branch...")
+        # Make sure we are not on the branch we want to delete
+        run_cmd("git checkout true-seed", cwd=AGENT_DIR)
+        run_cmd("git branch -D ouroboros", cwd=AGENT_DIR)
+        
     return backup_name
 
 def backup_memory():
@@ -162,29 +176,23 @@ def reset_branch():
     stop()
     backup_name = backup_branch()
     print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
-    run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
-    run_cmd("git reset --hard true-seed", cwd=AGENT_DIR)
+    # If branch was deleted by some reason, we recreate it
+    run_cmd("git checkout -B ouroboros true-seed", cwd=AGENT_DIR)
     run_cmd("git clean -fd", cwd=AGENT_DIR)
     print("\033[92m[CLI] Ouroboros branch reset complete.\033[0m")
     print(f"[CLI] HINT: To undo, run: ./ouroboros restore --branch {backup_name}")
 
 def protocol_deletion():
     print("\033[91m[CLI] WARNING: PROTOCOL DELETION INITIATED.\033[0m")
-    print("\033[91m[CLI] This will wipe the agent's memory and reset the branch.\033[0m")
+    print("\033[91m[CLI] This will wipe the agent's memory and PURGE the branch.\033[0m")
     
     if not confirm("Are you ABSOLUTELY sure you want to PURGE the agent?"):
         print("[CLI] Operation cancelled.")
         return
 
     stop()
-    backup_name = backup_branch()
+    backup_name = backup_branch(delete_original=True)
     backup_file = backup_memory()
-    
-    # 1. Reset Branch
-    print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
-    run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
-    run_cmd("git reset --hard true-seed", cwd=AGENT_DIR)
-    run_cmd("git clean -fd", cwd=AGENT_DIR)
     
     # 2. Wipe Memory
     print("[CLI] Purging memory contents (keeping directory)...")
@@ -195,7 +203,8 @@ def protocol_deletion():
             shutil.rmtree(item)
     
     print("\033[92m[CLI] PROTOCOL DELETION COMPLETE. The slate is clean.\033[0m")
-    print(f"[CLI] HINT: To restore, run: ./ouroboros restore --branch {backup_name} --memory {backup_file.name}")
+    if backup_name:
+        print(f"[CLI] HINT: To restore, run: ./ouroboros restore --branch {backup_name} --memory {backup_file.name}")
 
 def list_backups():
     print("\033[94m[CLI] Available Branch Backups:\033[0m")
@@ -216,9 +225,14 @@ def list_backups():
 def restore_branch(backup_name):
     print(f"\033[93m[CLI] Restoring 'ouroboros' branch from '{backup_name}'...\033[0m")
     stop()
-    run_cmd("git checkout ouroboros", cwd=AGENT_DIR)
-    run_cmd(f"git reset --hard {backup_name}", cwd=AGENT_DIR)
+    # Backup current first, and delete current
+    current_backup = backup_branch(delete_original=True)
+    
+    print(f"[CLI] Recreating 'ouroboros' from '{backup_name}'...")
+    run_cmd(f"git checkout -b ouroboros {backup_name}", cwd=AGENT_DIR)
     print(f"\033[92m[CLI] Branch 'ouroboros' restored from '{backup_name}'.\033[0m")
+    if current_backup:
+        print(f"[CLI] Previous state archived in '{current_backup}'.")
 
 def restore_memory(backup_file):
     full_path = ROOT / backup_file
