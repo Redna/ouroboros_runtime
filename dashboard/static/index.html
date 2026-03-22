@@ -15,7 +15,11 @@
     <nav class="tabs">
         <button class="tab-btn active" onclick="showSection('overview')">Overview</button>
         <button class="tab-btn" onclick="showSection('identity')">Identity</button>
+        <button class="tab-btn" onclick="showSection('insights')">Insights</button>
+        <button class="tab-btn" onclick="showSection('bio')">Bio</button>
+        <button class="tab-btn" onclick="showSection('state')">State</button>
         <button class="tab-btn" onclick="showSection('history')">History</button>
+        <button class="tab-btn" onclick="showSection('llm')">LLM</button>
     </nav>
 
     <main>
@@ -23,9 +27,29 @@
         <div id="section-overview" class="tab-content active">
             <section id="metrics" class="card-container">
                 <div class="card">
+                    <h3>Context Size</h3>
+                    <p id="context-size">0</p>
+                    <small>Tokens (Last Turn)</small>
+                </div>
+                <div class="card">
                     <h3>Tokens</h3>
                     <p id="total-tokens">0</p>
-                    <small>Consumed</small>
+                    <small>Consumed Total</small>
+                </div>
+                <div class="card">
+                    <h3>Input</h3>
+                    <p id="global-input-tokens">0</p>
+                    <small>Total Received</small>
+                </div>
+                <div class="card">
+                    <h3>Output</h3>
+                    <p id="global-output-tokens">0</p>
+                    <small>Total Generated</small>
+                </div>
+                <div class="card">
+                    <h3>In/Out</h3>
+                    <p><span id="input-tokens">0</span> / <span id="output-tokens">0</span></p>
+                    <small>Turn Throughput</small>
                 </div>
                 <div class="card">
                     <h3>Uptime</h3>
@@ -41,11 +65,6 @@
                     <h3>Commits</h3>
                     <p id="git-commits">0</p>
                     <small>Evolution Steps</small>
-                </div>
-                <div class="card">
-                    <h3>Changes</h3>
-                    <p id="git-changes">0</p>
-                    <small>Uncommitted</small>
                 </div>
             </section>
 
@@ -75,6 +94,46 @@
             </section>
         </div>
 
+        <!-- Insights Section -->
+        <div id="section-insights" class="tab-content">
+            <section class="card single-card">
+                <h2>Evolutionary Insights</h2>
+                <div id="insights-container" class="insights-box">
+                    Discovering reflections...
+                </div>
+            </section>
+        </div>
+
+        <!-- Bio Section -->
+        <div id="section-bio" class="tab-content">
+            <section class="card single-card">
+                <h2>Global Biography</h2>
+                <div id="bio-container" class="insights-box">
+                    Reading history...
+                </div>
+            </section>
+        </div>
+
+        <!-- State Section -->
+        <div id="section-state" class="tab-content">
+            <section class="card single-card">
+                <h2>Internal Agent State</h2>
+                <pre id="state-container" class="scroll-box json-view">
+                    Accessing state...
+                </pre>
+            </section>
+        </div>
+
+        <!-- LLM Section -->
+        <div id="section-llm" class="tab-content">
+            <section class="card single-card">
+                <h2>LLM Traces (Latest 20)</h2>
+                <div id="llm-container" class="llm-traces-box">
+                    Fetching traces...
+                </div>
+            </section>
+        </div>
+
         <!-- History Section -->
         <div id="section-history" class="tab-content">
             <section class="card single-card">
@@ -91,9 +150,10 @@
     </main>
 
     <footer>
-        <p>&copy; 2026 Ouroboros Project | v3.1</p>
+        <p>&copy; 2026 Ouroboros Project | v4.0</p>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
