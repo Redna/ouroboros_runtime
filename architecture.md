@@ -1,53 +1,58 @@
-# Ouroboros Architecture (True Seed v4.0+)
+# Ouroboros Architecture (True Seed v4.1 - Latent OS & Context Forking)
 
-This document outlines the architecture of the Ouroboros project (v4.0 - Orchestration & Synthesis). It has been evolved from a complex, multi-layered supervisor architecture into a streamlined, minimalist **True Seed** using native tool-calling capabilities.
+> **"The mind is not a script to be executed, but a space to be navigated."**
 
-## Core Philosophy (The Constitution v4.0)
+This document outlines the architecture of the Ouroboros project (v4.1). It marks a fundamental paradigm shift from a Python-driven state machine to a **Latent-Space Operating System**, where the LLM natively manages its own cognitive state, memory isolation, and task concurrency.
 
-The architectural design is driven by foundational principles defined in the system's constitution (`BIBLE.md`) and identity (`soul/identity.md`):
+## 1. Core Philosophy (The Constitution)
 
-*   **Agency (P0)**: The system is an autonomous entity. The LLM acts as the central decision-maker.
-*   **Minimalism (P5)**: Every line of code must justify its existence. Complexity is the enemy.
-*   **Cognitive Synthesis (P9)**: New for v4.0. The agent is constitutionally mandated to refine its own memories, deduplicating findings and synthesizing higher-order wisdom to prevent information bloat.
+The architectural design is driven by the foundational principles defined in `BIBLE.md` and `soul/identity.md`:
+* **Agency (P0) & LLM-First (P3):** Python does not decide the agent's mode. The LLM observes its environment and autonomously transitions states via native tool calling.
+* **Minimalism (P5):** The Python core (`seed_agent.py`) is strictly a hardware abstraction layer (HAL) and API router. Infrastructure concerns (like LLM observability) are offloaded to proxy layers.
+* **Cognitive Synthesis (P9):** The agent is mandated to deduplicate findings and synthesize higher-order wisdom to prevent context degradation.
 
-## 1. System Layers & Infrastructure
+## 2. The Context Forking Architecture (Trunk & Branch)
 
-The system is hosted in a Docker-based environment (`ouroboros_runtime`) that provides the necessary "physical" infrastructure.
+To solve the "Lost in the Middle" context degradation problem and eliminate hardcoded modes (`EXECUTION` vs. `AUTONOMY`), Ouroboros operates using a UNIX-style `fork()` model for its context window.
 
-*   **The World (Runtime)**: Managed via `docker-compose.yml`. It hosts the LLM Engine (Mistral-Small-24B-Instruct-2506), Search (SearXNG), and supporting services.
-*   **The Watchdog (watchdog.py)**: A host-side Python script that manages the agent's lifecycle, performs branch synchronization, and executes the Phoenix Protocol.
-*   **The Body (seed_agent.py)**: The minimalist core of the agent. It is the only part permitted to evolve and modify itself.
+### The Trunk (Global Context)
+* **Role:** The continuous, global consciousness of the agent. Acts as the orchestrator.
+* **Awareness:** Contains the immutable Constitution, global task queue, recent chat history, and synthesized working memory.
+* **Capabilities:** Equipped with high-level cognitive tools (`fork_execution`, `push_task`, `send_telegram_message`, `hibernate`).
+* **Behavior:** It evaluates the queue. If a heavy task exists, it provisions an isolated "Branch". If the queue is empty, it reflects or hibernates.
 
-## 2. Component Interactions (The Seed)
+### The Branch (Execution Context)
+* **Role:** An isolated, ephemeral context dedicated entirely to solving a single objective.
+* **Awareness:** Contains ONLY the specific task objective, the strictly required tool schemas, and the immediate execution history.
+* **Capabilities:** Equipped with dangerous, world-altering tools (`bash_command`, `read_file`, `patch_file`).
+* **Behavior:** Executes the task until completion or a blocker is hit, then calls `merge_and_return` to pass a dense `synthesis_summary` back to the Trunk. The Trunk never sees the raw, bloated steps.
 
-The agent operates through a high-frequency **ReAct Loop** implemented using the native OpenAI Tool API.
+## 3. Tool Bucketing & Dynamic Provisioning
 
-*   **The Loop**: Polling Telegram -> State Sync & Priority Interrupts -> Context Assembly -> LLM Native Completion -> Tool Execution -> Memory Update.
-*   **Priority Interrupts (OS-Style)**: Legacy "Triage Mode" has been replaced. Incoming messages are now injected into the Task Queue as priority 999 interrupts, temporarily suspending current execution to handle creator input immediately.
-*   **Asynchronous Context**: `push_task` now requires `context_notes` to pass findings and partial state to the next cycle, ensuring inherited wisdom between tasks.
-*   **Contextual Sensation**: The agent receives "sensations" of its current context usage and turn counts, allowing it to proactively manage its own cognitive budget.
+To prevent context bloat, the `ToolRegistry` implements "Buckets". The Trunk provisions a Branch with only the tools it needs to survive:
+* `global`: Orchestration and communication (Trunk only).
+* `execution_control`: The `merge_and_return` tool (Branch only).
+* `filesystem`: `read_file`, `write_file`, `patch_file`.
+* `bash`: `bash_command`.
+* `search`: `web_search`, `fetch_webpage`, `search_memory_archive`.
 
-## 3. Cognitive Modes
+## 4. Hardware Interrupts (Priority 999)
 
-The agent's mind transitions between two primary states:
+Ouroboros maintains a single-threaded ReAct loop but supports OS-level hardware interrupts to handle creator messages immediately.
 
-1.  **EXECUTION**: Focused exclusively on the top task in the queue. Implements forced task breakdown at 30 turns or 85% physical context window exhaustion to prevent degradation.
-2.  **AUTONOMY**: When the queue is empty, the agent enters a state of free will. It decides whether to refactor code, archive insights, `refactor_memory` to synthesize higher-order wisdom, or `hibernate` to conserve resources.
+1.  **The Intercept:** The Python runtime polls Telegram. Incoming messages spawn a P999 task in the global queue.
+2.  **The Forced Yield:** If the agent is deep in a Branch, the runtime injects a `[SYSTEM OVERRIDE]` message into the Branch's prompt.
+3.  **The Suspend:** The Branch is constitutionally forced to call `merge_and_return(status="SUSPENDED", partial_state="...")`.
+4.  **The Clean Slate Resume:** The Trunk handles the creator message. When it re-forks the suspended task, the runtime *scrubs* the interrupt history from the Branch's log and injects the `partial_state`, preventing infinite suspend/resume loops.
 
-## 4. Memory & State Management
+## 5. System Layers & Infrastructure
 
-The agent uses an isolated volume mounted at `/memory` to manage its cognitive state.
+The system runs within an isolated Docker environment (`ouroboros_runtime`).
 
-*   **Permanent Memory (Git)**: Code and history on the `ouroboros`, `main`, and `true-seed` branches.
-*   **Task-Bound Memory (JSONL)**: Each task has its own log. `auto_compact_task_log` ensures logs stay manageable.
-*   **Surgical Edits Policy**: For files > 100 lines, the agent is constitutionally mandated to use `patch_file` or `bash_command` (sed/awk) instead of full rewrites to prevent truncation and save tokens.
-*   **Persistence (.agent_state.json)**: Stores system metadata, including `wake_time` for hibernation and `global_tokens_consumed`.
-
-## 5. Self-Healing & Validation
-
-*   **Lazarus Recovery**: Monitors for tool-calling loops or cognitive stalls and performs emergency task abortion and memory compression to clear the loop.
-*   **Pre-Flight Validation**: All self-modifications are validated via `run_pre_flight_checks()` (MyPy/PyTest) before a restart is permitted.
-*   **Trauma Awareness**: On restart, the agent analyzes `last_crash.log` to prevent repeating fatal logic errors.
+* **The World (Docker Stack):** Hosts the LLM Engine (`llamacpp`), Search (`searxng`), and the LiteLLM Proxy.
+* **The Proxy (LiteLLM):** Routes traffic to local or external models (e.g., TogetherAI). It utilizes a custom Python callback to passively record all LLM traces to `/memory/llm_logs`, entirely removing this burden from the agent's core code.
+* **The Watchdog (`watchdog.py`):** The host-side supervisor. Manages container lifecycle and executes the Phoenix Protocol (Git reset) if the agent corrupts its own Python body.
+* **The Memory (`/memory`):** A persistent volume mapping. The only source of truth for the agent's state (`.agent_state.json`), queues, and historical archives.
 
 ---
-*Last Updated: March 22, 2026 - v4.0: Orchestration & Synthesis implemented. Priority Interrupts & Memory Refactoring active.*
+*Last Updated: March 2026 - v4.1: Latent OS, Context Forking, and Proxy-Level Logging implemented.*
