@@ -180,13 +180,27 @@ async def get_identity():
 
 @app.get("/api/logs")
 async def get_logs(limit: int = 50):
-    latest_log = get_latest_log_file()
-    if not latest_log:
-        return []
-    
+    # Determine the active cognitive context
+    state_file = MEMORY_DIR / ".agent_state.json"
+    active_task = "global_trunk"
+
+    if state_file.exists():
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+                if state.get("active_branch"):
+                    active_task = state["active_branch"].get("task_id", "global_trunk")
+        except Exception:
+            pass
+
+    log_file = MEMORY_DIR / f"task_log_{active_task}.jsonl"
+
+    if not log_file.exists():
+        return [{"role": "system", "content": f"Waiting for context initialization ({active_task})..."}]
+
     logs = []
     try:
-        with open(latest_log, "r") as f:
+        with open(log_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
             for line in lines[-limit:]:
                 try:
@@ -196,7 +210,6 @@ async def get_logs(limit: int = 50):
     except:
         return []
     return logs
-
 # Serve static files
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
