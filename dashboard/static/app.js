@@ -112,6 +112,43 @@ async function updateTasks() {
     } catch (err) {}
 }
 
+async function updateScheduledTasks() {
+    try {
+        const response = await fetch('/api/scheduled');
+        const tasks = await response.json();
+        
+        const taskList = document.getElementById('scheduled-list');
+        if (!taskList) return;
+        
+        taskList.innerHTML = '';
+        
+        if (tasks.length > 0) {
+            // Sort tasks by soonest execution time
+            tasks.sort((a, b) => a.run_after - b.run_after);
+            
+            tasks.forEach(task => {
+                const li = document.createElement('li');
+                li.className = 'task-item';
+                
+                // Convert UNIX timestamp to a readable local string
+                const runDate = new Date(task.run_after * 1000);
+                const timeString = runDate.toLocaleString(undefined, { 
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+                });
+                
+                // Escape description for safety
+                const safeDesc = task.description.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                
+                // Styling to separate the time from the description
+                li.innerHTML = `<span class="task-priority" style="background: #333; color: #aaa;">[${timeString}]</span> ${safeDesc}`;
+                taskList.appendChild(li);
+            });
+        } else {
+            taskList.innerHTML = '<li class="task-item" style="color: #555; font-style: italic;">No future tasks scheduled.</li>';
+        }
+    } catch (err) {}
+}
+
 async function updateLogs() {
     try {
         const response = await fetch('/api/logs');
@@ -328,12 +365,13 @@ function escapeHtml(text) {
 function init() {
     updateStatus();
     updateTasks();
+    updateScheduledTasks();
     updateLogs();
-    
+
     setInterval(updateStatus, 5000);
     setInterval(updateTasks, 5000);
+    setInterval(updateScheduledTasks, 5000);
     setInterval(updateLogs, 5000);
     setInterval(updateUptime, 1000);
 }
-
 document.addEventListener('DOMContentLoaded', init);

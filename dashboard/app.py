@@ -77,6 +77,19 @@ async def get_tasks():
             return json.load(f)
     return []
 
+@app.get("/api/scheduled")
+async def get_scheduled_tasks():
+    scheduled_file = MEMORY_DIR / "scheduled_tasks.json"
+    if scheduled_file.exists():
+        try:
+            with open(scheduled_file, "r") as f:
+                content = f.read().strip()
+                if content:
+                    return json.loads(content)
+        except Exception:
+            pass
+    return []
+
 @app.get("/api/history")
 async def get_history():
     history_file = MEMORY_DIR / "chat_history.json"
