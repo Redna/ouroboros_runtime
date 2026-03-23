@@ -150,10 +150,18 @@
                     Loading history...
                 </div>
             </section>
-            <section id="queue" class="card single-card">
-                <h2>Task Queue</h2>
-                <ul id="task-list"></ul>
-            </section>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing);">
+                <section id="queue" class="card single-card" style="margin: 0;">
+                    <h2>Active Task Queue</h2>
+                    <ul id="task-list"></ul>
+                </section>
+
+                <section id="scheduled-queue" class="card single-card" style="margin: 0;">
+                    <h2>Scheduled Future Tasks</h2>
+                    <ul id="scheduled-list"></ul>
+                </section>
+            </div>
         </div>
     </main>
 
