@@ -10,6 +10,12 @@ from pathlib import Path
 
 app = FastAPI()
 
+# Git safety
+try:
+    subprocess.run(["git", "config", "--global", "--add", "safe.directory", "/agent_soul"], check=False)
+except:
+    pass
+
 # Configuration
 MEMORY_DIR = Path("/memory")
 AGENT_DIR = Path("/agent_soul") # Injected via docker-compose
@@ -78,6 +84,82 @@ async def get_history():
         with open(history_file, "r") as f:
             return json.load(f)
     return []
+
+@app.get("/api/insights")
+async def get_insights():
+    insights_file = MEMORY_DIR / "insights.md"
+    if not insights_file.exists():
+        return []
+    
+    content = insights_file.read_text()
+    import re
+    # Pattern: ### [Timestamp] Title \n Body
+    pattern = r'### \[(.*?)\] (.*)\n([\s\S]*?)(?=\n### \[|$)'
+    matches = re.findall(pattern, content)
+    
+    insights = []
+    for timestamp, title, body in matches:
+        insights.append({
+            "timestamp": timestamp,
+            "title": title,
+            "content": body.strip()
+        })
+    
+    if not insights:
+        return [{"timestamp": "N/A", "title": "Empty", "content": "No insights found in insights.md"}]
+    return insights[::-1]
+
+@app.get("/api/llm_logs")
+async def get_llm_logs():
+    log_files = glob.glob(str(MEMORY_DIR / "llm_logs" / "call-*.json"))
+    log_files.sort(reverse=True) # Latest first
+    
+    logs = []
+    # Only return last 20 for performance
+    for file_path in log_files[:20]:
+        try:
+            with open(file_path, "r") as f:
+                data = json.load(f)
+                logs.append(data)
+        except:
+            continue
+    return logs
+
+@app.get("/api/biography")
+async def get_biography():
+    bio_file = MEMORY_DIR / "global_biography.md"
+    if not bio_file.exists():
+        return []
+    
+    content = bio_file.read_text()
+    import re
+    # Pattern: [Timestamp] Event \n
+    pattern = r'\[(.*?)\] (.*)'
+    matches = re.findall(pattern, content)
+    
+    bio = []
+    for timestamp, text in matches:
+        if " Completed: " in text:
+            event, details = text.split(" Completed: ", 1)
+            event += " Completed"
+        else:
+            event = text
+            details = ""
+            
+        bio.append({
+            "timestamp": timestamp,
+            "event": event,
+            "details": details
+        })
+    return bio[::-1]
+
+@app.get("/api/state")
+async def get_full_state():
+    state_file = MEMORY_DIR / ".agent_state.json"
+    if state_file.exists():
+        with open(state_file, "r") as f:
+            return json.load(f)
+    return {}
 
 @app.get("/api/identity")
 async def get_identity():

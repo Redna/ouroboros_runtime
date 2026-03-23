@@ -32,7 +32,7 @@ services:
       - -ngl
       - "999"               
       - -c
-      - "131072"          
+      - "102400"          
       - --no-warmup
       - --flash-attn      
       - "on"              
@@ -41,9 +41,9 @@ services:
       - --cache-type-v
       - "q8_0"            
       - -b
-      - "4096"            
+      - "1024"            
       - -ub
-      - "4096"            
+      - "1024"            
       - -np
       - "1"  
     networks:
