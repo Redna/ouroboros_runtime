@@ -27,6 +27,11 @@ async function updateStatus() {
         if (document.getElementById('global-output-tokens')) document.getElementById('global-output-tokens').innerText = (data.global_output_tokens || 0).toLocaleString();
         if (document.getElementById('restart-count')) document.getElementById('restart-count').innerText = data.restarts || 0;
         if (document.getElementById('git-commits')) document.getElementById('git-commits').innerText = data.git?.commits || 0;
+        
+        // Add binding for pre-flight failures
+        if (document.getElementById('preflight-failures')) {
+            document.getElementById('preflight-failures').innerText = data.preflight_failures || 0;
+        }
 
         if (document.getElementById('context-size')) document.getElementById('context-size').innerText = (data.last_context_size || 0).toLocaleString();        if (document.getElementById('input-tokens')) document.getElementById('input-tokens').innerText = data.last_input_tokens || 0;
         if (document.getElementById('output-tokens')) document.getElementById('output-tokens').innerText = data.last_output_tokens || 0;
