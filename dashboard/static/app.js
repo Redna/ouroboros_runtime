@@ -32,10 +32,24 @@ async function updateStatus() {
         if (document.getElementById('output-tokens')) document.getElementById('output-tokens').innerText = data.last_output_tokens || 0;
         
         lastStartTime = data.last_start_time;
-        
+
         if (document.getElementById('runtime-indicator')) {
             document.getElementById('runtime-indicator').innerText = 'Online';
             document.getElementById('runtime-indicator').className = 'online';
+        }
+
+        // Update Cognitive Context UI
+        const contextBadge = document.getElementById('context-badge');
+        const taskDesc = document.getElementById('task-description');
+
+        if (data.active_branch) {
+            contextBadge.innerText = 'BRANCH: ' + data.active_branch.task_id;
+            contextBadge.className = 'status-badge context-branch';
+            taskDesc.innerText = 'OBJECTIVE: ' + data.active_branch.objective;
+        } else {
+            contextBadge.innerText = 'GLOBAL TRUNK';
+            contextBadge.className = 'status-badge context-trunk';
+            // We'll let updateTasks() handle the description if we are in the Trunk
         }
     } catch (err) {
         console.error("Status update failed:", err);
@@ -64,18 +78,31 @@ function formatDuration(seconds) {
 
 async function updateTasks() {
     try {
-        const response = await fetch('/api/tasks');
-        const tasks = await response.json();
+        const responseStatus = await fetch('/api/status');
+        const statusData = await responseStatus.json();
+        
+        const responseTasks = await fetch('/api/tasks');
+        const tasks = await responseTasks.json();
+        
         const taskList = document.getElementById('task-list');
         taskList.innerHTML = '';
+        
         if (tasks.length > 0) {
-            document.getElementById('task-description').innerText = tasks[0].description;
+            // Only update the main description from the queue if we are in the Trunk
+            if (!statusData.active_branch) {
+                document.getElementById('task-description').innerText = tasks[0].description;
+            }
+            
             tasks.forEach(task => {
                 const li = document.createElement('li');
                 li.className = 'task-item';
-                li.innerHTML = `<span class="task-priority">P${task.priority}</span> ${task.description}`;
+                // Using a basic escape for safety if escapeHtml isn't defined, or assume it's safe if it's internal
+                const safeDesc = task.description.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                li.innerHTML = `<span class="task-priority">P${task.priority}</span> ${safeDesc}`;
                 taskList.appendChild(li);
             });
+        } else if (!statusData.active_branch) {
+            document.getElementById('task-description').innerText = "Queue empty. Orchestrating or reflecting.";
         }
     } catch (err) {}
 }

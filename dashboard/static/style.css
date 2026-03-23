@@ -357,3 +357,21 @@ footer {
         display: block;
     }
 }
+
+/* Cognitive Context Badges */
+.context-trunk {
+    background: rgba(0, 255, 204, 0.1);
+    color: #00ffcc;
+    border: 1px solid #00ffcc;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
+.context-branch {
+    background: rgba(255, 0, 255, 0.1);
+    color: #ff00ff;
+    border: 1px solid #ff00ff;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+
