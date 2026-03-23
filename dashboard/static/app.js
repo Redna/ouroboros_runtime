@@ -148,19 +148,35 @@ async function updateBiography() {
                     <span class="insight-title">${escapeHtml(entry.event)}</span>
                     <span class="insight-date">${escapeHtml(entry.timestamp)}</span>
                 </div>
-                <div class="insight-content">${escapeHtml(entry.details)}</div>
+                <div class="insight-content markdown-body">${marked.parse(entry.details || '')}</div>
             `;
             container.appendChild(div);
         });
-    } catch (err) {}
+    } catch (err) {
+        console.error("Error updating biography:", err);
+    }
 }
 
 async function updateFullState() {
     try {
         const response = await fetch('/api/state');
         const state = await response.json();
-        document.getElementById('state-container').innerText = JSON.stringify(state, null, 2);
-    } catch (err) {}
+        const container = document.getElementById('state-container');
+        
+        let html = '<div class="state-grid">';
+        for (const [key, value] of Object.entries(state)) {
+            html += `
+                <div class="state-item">
+                    <div class="state-key">${escapeHtml(key)}</div>
+                    <div class="state-value">${escapeHtml(String(value))}</div>
+                </div>
+            `;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    } catch (err) {
+        console.error("Error updating full state:", err);
+    }
 }
 
 async function updateLLMLogs() {
