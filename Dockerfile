@@ -1,5 +1,5 @@
 # Use a lightweight Python base image
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -24,12 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv for fast package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh
 
-# Copy dependency files first for caching
-COPY ouroboros/requirements.txt ./
-
-# Install dependencies using uv system-wide
-RUN uv pip install --system -r requirements.txt
-
 # Copy the rest of the application (Agent's Body)
 COPY ouroboros/ .
 
@@ -39,4 +33,4 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # The entrypoint launches the seed agent
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["python", "seed_agent.py"]
+CMD ["uv", "run", "python", "seed_agent.py"]
