@@ -17,7 +17,7 @@ sudo -u "$USER_NAME" -H git config --global --add safe.directory /app
 
 # Ensure Git hooks are active
 if [ -f "/app/scripts/setup_hooks.sh" ]; then
-    sudo -u "$USER_NAME" -H bash /app/scripts/setup_hooks.sh > /dev/null 2>&1
+    cd /app && sudo -u "$USER_NAME" -H bash scripts/setup_hooks.sh > /dev/null 2>&1
 fi
 
 echo "Awaking Ouroboros as $USER_NAME ($USER_ID:$GROUP_ID)..."
