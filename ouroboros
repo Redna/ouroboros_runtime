@@ -7,6 +7,7 @@ import sys
 import time
 import shutil
 import glob
+import json
 from pathlib import Path
 
 # --- Configuration ---
@@ -18,7 +19,14 @@ MEMORY_DIR = ROOT / "ouroboros_memory"
 RUN_DIR = Path("/tmp/ouroboros-runtime")
 PID_FILE = RUN_DIR / "watchdog.pid"
 LOG_FILE = RUN_DIR / "watchdog.log"
-WATCHDOG_SCRIPT = RUNTIME_DIR / "watchdog.py"
+
+SCRATCHPAD_PATH = MEMORY_DIR / "scratchpad.md"
+CRASH_LOG_PATH = MEMORY_DIR / "last_crash.log"
+STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
+
+# Thresholds
+UPTIME_STABILITY_THRESHOLD = 60
+MAX_STARTUP_FAILURES = 2
 
 def ensure_run_dir():
     if not RUN_DIR.exists():
@@ -31,9 +39,9 @@ def is_running(pid):
     except (OSError, ProcessLookupError):
         return False
 
-def run_cmd(cmd, cwd=None, check=True):
+def run_cmd(cmd, cwd=None, check=True, capture=True):
     try:
-        return subprocess.run(cmd, shell=True, cwd=cwd, check=check, capture_output=True, text=True)
+        return subprocess.run(cmd, shell=True, cwd=cwd, check=check, capture_output=capture, text=True)
     except subprocess.CalledProcessError as e:
         print(f"\033[91m[CLI] Error running command: {cmd}\033[0m")
         if e.stderr: print(e.stderr)
@@ -47,6 +55,125 @@ def confirm(prompt="Are you sure you want to proceed?"):
         return answer == 'y'
     except EOFError:
         return False
+
+# --- Watchdog Functions ---
+
+def get_compose_args():
+    """Auto-detects GPU hardware to select the correct compose overrides."""
+    base_compose = "-f docker-compose.yml"
+    if Path("/dev/kfd").exists():
+        print("\033[96m[DAEMON] Hardware Detect: AMD GPU found. Loading ROCm backend.\033[0m")
+        return f"{base_compose} -f docker-compose.rocm.yml"
+    else:
+        print("\033[92m[DAEMON] Hardware Detect: Defaulting to NVIDIA CUDA backend.\033[0m")
+        return f"{base_compose} -f docker-compose.cuda.yml"
+
+def capture_crash_log():
+    """Captures the last 50 lines of logs from the agent container."""
+    print("[DAEMON] Capturing crash log for Ouroboros...")
+    compose_args = get_compose_args()
+    result = subprocess.run(
+        f"docker compose {compose_args} logs --tail=50 ouroboros", 
+        shell=True, cwd=RUNTIME_DIR, capture_output=True, text=True
+    )
+    if result.stdout:
+        if not MEMORY_DIR.exists(): MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        CRASH_LOG_PATH.write_text(result.stdout, encoding="utf-8")
+        print(f"[DAEMON] Log saved to {CRASH_LOG_PATH}")
+
+def trigger_lazarus_reset(reason="Startup failure"):
+    """Performs a host-side git rollback to recover from a broken agent state."""
+    print(f"\033[91m[DAEMON] PHOENIX PROTOCOL: {reason.upper()}. Executing Reset...\033[0m")
+    
+    capture_crash_log()
+    ensure_ouroboros_branch()
+    
+    subprocess.run("git reset --hard HEAD~1", shell=True, cwd=AGENT_DIR)
+    subprocess.run("git clean -fd", shell=True, cwd=AGENT_DIR)
+    
+    if not MEMORY_DIR.exists(): MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SCRATCHPAD_PATH, "a", encoding="utf-8") as f:
+        f.write(f"\n\n--- PHOENIX RECOVERY ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
+        f.write(f"Reason: {reason}\n")
+    print("[DAEMON] Phoenix Reset complete. Restarting stack...")
+
+def update_runtime_stats():
+    stats = {"restart_count": 0, "last_start_time": time.time()}
+    if STATS_FILE.exists():
+        try:
+            with open(STATS_FILE, "r") as f:
+                stats = json.load(f)
+        except:
+            pass
+    stats["restart_count"] = stats.get("restart_count", 0) + 1
+    stats["last_start_time"] = time.time()
+    if not MEMORY_DIR.exists(): MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    with open(STATS_FILE, "w") as f:
+        json.dump(stats, f)
+
+def ensure_ouroboros_branch():
+    """Checks if 'ouroboros' branch exists, creates it from 'true-seed' if not."""
+    print("[DAEMON] Verifying 'ouroboros' branch...")
+    result = subprocess.run("git branch --list ouroboros", shell=True, cwd=AGENT_DIR, capture_output=True, text=True)
+    
+    if not result.stdout.strip():
+        print("[DAEMON] Branch 'ouroboros' missing! Recreating from 'true-seed'...")
+        rc = subprocess.run("git checkout -b ouroboros true-seed", shell=True, cwd=AGENT_DIR).returncode
+        if rc != 0:
+            print("[DAEMON] FATAL: Could not create 'ouroboros' branch from 'true-seed'.")
+            return False
+    else:
+        rc = subprocess.run("git checkout ouroboros", shell=True, cwd=AGENT_DIR).returncode
+        if rc != 0:
+            print("[DAEMON] FATAL: Could not switch to 'ouroboros' branch.")
+            return False
+    return True
+
+def daemon_cleanup(sig, frame):
+    """Graceful shutdown: stop all containers."""
+    print("\n\033[93m[DAEMON] Shutdown signal received. Cleaning up stack...\033[0m")
+    compose_args = get_compose_args()
+    subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=RUNTIME_DIR)
+    print("[DAEMON] Cleanup complete. Exiting.")
+    os._exit(0)
+
+def run_daemon():
+    """Infinite monitoring loop."""
+    signal.signal(signal.SIGINT, daemon_cleanup)
+    signal.signal(signal.SIGTERM, daemon_cleanup)
+    
+    print("\033[94m[DAEMON] Ouroboros Watchdog Daemon Initialized.\033[0m")
+    
+    failure_count = 0
+    compose_args = get_compose_args()
+    
+    while True:
+        update_runtime_stats()
+        start_time = time.time()
+        print(f"\n[DAEMON] Starting Unified Ouroboros Stack (Attempt {failure_count + 1})...")
+        
+        if not ensure_ouroboros_branch():
+            print("[DAEMON] Branch error. Waiting 30s before retry...")
+            time.sleep(30)
+            continue
+
+        # Monitor the entire stack (all services) using the dynamically selected files
+        exit_code = subprocess.run(f"docker compose {compose_args} up --build --abort-on-container-exit", shell=True, cwd=RUNTIME_DIR).returncode
+        
+        uptime = time.time() - start_time
+        print(f"[DAEMON] Agent process ended. Uptime: {uptime:.1f}s | Exit Code: {exit_code}")
+        
+        if uptime < UPTIME_STABILITY_THRESHOLD and exit_code != 0:
+            failure_count += 1
+            if failure_count >= MAX_STARTUP_FAILURES:
+                trigger_lazarus_reset()
+                failure_count = 0
+        else:
+            failure_count = 0
+        
+        time.sleep(10)
+
+# --- CLI Commands ---
 
 def start():
     ensure_run_dir()
@@ -68,7 +195,7 @@ def start():
     
     # Start the watchdog in a new session to avoid being killed when this CLI exits
     proc = subprocess.Popen(
-        [sys.executable, str(WATCHDOG_SCRIPT)],
+        [sys.executable, str(RUNTIME_DIR / "ouroboros"), "daemon"],
         stdout=log_f,
         stderr=subprocess.STDOUT,
         cwd=str(RUNTIME_DIR),
@@ -85,7 +212,8 @@ def stop():
     if not PID_FILE.exists():
         print("[CLI] Ouroboros Watchdog is not running (no PID file).")
         print("[CLI] Ensuring containers are down...")
-        subprocess.run(["docker", "compose", "down"], cwd=str(RUNTIME_DIR))
+        compose_args = get_compose_args()
+        subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=str(RUNTIME_DIR))
         return
 
     try:
@@ -111,7 +239,8 @@ def stop():
             PID_FILE.unlink()
 
     print("[CLI] Ensuring all containers are stopped...")
-    subprocess.run(["docker", "compose", "down"], cwd=str(RUNTIME_DIR))
+    compose_args = get_compose_args()
+    subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=str(RUNTIME_DIR))
     print("\033[92m[CLI] Ouroboros stopped.\033[0m")
 
 def status():
@@ -142,8 +271,6 @@ def logs(follow=False):
 def backup_branch(delete_original=False):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     backup_name = f"backup/ouroboros-{timestamp}"
-    
-    # Check if branch exists
     res = run_cmd("git branch --list ouroboros", cwd=AGENT_DIR, check=False)
     if not res.stdout.strip():
         print("[CLI] No 'ouroboros' branch found to backup.")
@@ -154,10 +281,8 @@ def backup_branch(delete_original=False):
     
     if delete_original:
         print("[CLI] Deleting original 'ouroboros' branch...")
-        # Make sure we are not on the branch we want to delete
         run_cmd("git checkout true-seed", cwd=AGENT_DIR)
         run_cmd("git branch -D ouroboros", cwd=AGENT_DIR)
-        
     return backup_name
 
 def backup_memory():
@@ -176,7 +301,6 @@ def reset_branch():
     stop()
     backup_name = backup_branch()
     print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
-    # If branch was deleted by some reason, we recreate it
     run_cmd("git checkout -B ouroboros true-seed", cwd=AGENT_DIR)
     run_cmd("git clean -fd", cwd=AGENT_DIR)
     print("\033[92m[CLI] Ouroboros branch reset complete.\033[0m")
@@ -194,7 +318,6 @@ def protocol_deletion():
     backup_name = backup_branch(delete_original=True)
     backup_file = backup_memory()
     
-    # 2. Wipe Memory
     print("[CLI] Purging memory contents (keeping directory)...")
     for item in MEMORY_DIR.iterdir():
         if item.is_file():
@@ -225,9 +348,7 @@ def list_backups():
 def restore_branch(backup_name):
     print(f"\033[93m[CLI] Restoring 'ouroboros' branch from '{backup_name}'...\033[0m")
     stop()
-    # Backup current first, and delete current
     current_backup = backup_branch(delete_original=True)
-    
     print(f"[CLI] Recreating 'ouroboros' from '{backup_name}'...")
     run_cmd(f"git checkout -b ouroboros {backup_name}", cwd=AGENT_DIR)
     print(f"\033[92m[CLI] Branch 'ouroboros' restored from '{backup_name}'.\033[0m")
@@ -242,21 +363,18 @@ def restore_memory(backup_file):
 
     print(f"\033[93m[CLI] Restoring memory from '{backup_file}'...\033[0m")
     stop()
-    
-    # Purge current memory
     print("[CLI] Purging current memory...")
     for item in MEMORY_DIR.iterdir():
         if item.is_file(): item.unlink()
         elif item.is_dir(): shutil.rmtree(item)
     
-    # Extract backup
     print(f"[CLI] Extracting {backup_file}...")
     run_cmd(f"tar -xzf {full_path} -C {ROOT}")
     print(f"\033[92m[CLI] Memory restored from '{backup_file}'.\033[0m")
 
 def main():
     parser = argparse.ArgumentParser(description="Ouroboros Runtime CLI")
-    parser.add_argument("command", choices=["start", "stop", "status", "logs", "reset", "purge", "restore"], 
+    parser.add_argument("command", choices=["start", "stop", "status", "logs", "reset", "purge", "restore", "daemon"], 
                         help="Command to execute")
     parser.add_argument("-f", "--follow", action="store_true", help="Follow log output (for 'logs' command)")
     parser.add_argument("--branch", help="Backup branch name to restore")
@@ -285,6 +403,8 @@ def main():
                 restore_branch(args.branch)
             if args.memory:
                 restore_memory(args.memory)
+    elif args.command == "daemon":
+        run_daemon()
 
 if __name__ == "__main__":
     main()
