@@ -12,6 +12,7 @@ services:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - UV_PROJECT_ENVIRONMENT=/venv
+      - DEFAULT_MODEL=${DEFAULT_MODEL}
     volumes:
       - ../ouroboros_memory:/memory
       - ../ouroboros:/app
