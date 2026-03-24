@@ -194,8 +194,9 @@ def start():
     log_f = open(LOG_FILE, "a", encoding="utf-8")
     
     # Start the watchdog in a new session to avoid being killed when this CLI exits
+    # We call ourselves with the 'daemon' command
     proc = subprocess.Popen(
-        [sys.executable, str(RUNTIME_DIR / "ouroboros"), "daemon"],
+        [sys.executable, __file__, "daemon"],
         stdout=log_f,
         stderr=subprocess.STDOUT,
         cwd=str(RUNTIME_DIR),
@@ -220,9 +221,11 @@ def stop():
         pid = int(PID_FILE.read_text())
         if is_running(pid):
             print(f"\033[93m[CLI] Stopping Watchdog (PID: {pid})...\033[0m")
+            # Send SIGINT to trigger the daemon's internal cleanup()
             os.kill(pid, signal.SIGINT)
             
-            timeout = 15
+            # Wait for the process to exit (it should handle its own docker compose down)
+            timeout = 30
             start_wait = time.time()
             while is_running(pid) and (time.time() - start_wait < timeout):
                 time.sleep(0.5)
@@ -230,6 +233,9 @@ def stop():
             if is_running(pid):
                 print("[CLI] Watchdog did not exit gracefully, killing it...")
                 os.kill(pid, signal.SIGKILL)
+                # If we had to kill it, we must ensure docker is down manually
+                compose_args = get_compose_args()
+                subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=str(RUNTIME_DIR))
         else:
             print(f"[CLI] Watchdog process (PID: {pid}) is already gone.")
     except (ValueError, OSError) as e:
@@ -238,9 +244,6 @@ def stop():
         if PID_FILE.exists():
             PID_FILE.unlink()
 
-    print("[CLI] Ensuring all containers are stopped...")
-    compose_args = get_compose_args()
-    subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=str(RUNTIME_DIR))
     print("\033[92m[CLI] Ouroboros stopped.\033[0m")
 
 def status():
