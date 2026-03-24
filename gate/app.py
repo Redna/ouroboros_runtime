@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional, AsyncGenerator
 import httpx
-from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, File, UploadFile
+from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
@@ -20,6 +20,8 @@ LEDGER_FILE = MEMORY_DIR / "financial_ledger.json"
 TOGETHERAI_API_KEY = os.getenv("TOGETHERAI_API_KEY", "")
 DAILY_BUDGET_LIMIT = float(os.getenv("DAILY_BUDGET_LIMIT", "5.00"))
 LOCAL_CONTEXT_WINDOW = int(os.getenv("OUROBOROS_CONTEXT_WINDOW", "65536"))
+AUDIO_API_URL = os.getenv("AUDIO_API_URL", "https://api.together.xyz/v1/audio/transcriptions")
+AUDIO_API_KEY = os.getenv("AUDIO_API_KEY", TOGETHERAI_API_KEY)
 
 # State
 PRICING_CACHE: Dict[str, Dict[str, float]] = {}
@@ -233,39 +235,73 @@ async def generate_images(request: Request, background_tasks: BackgroundTasks):
         return resp_json
 
 @app.post("/v1/audio/transcriptions")
-async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...), model: str = "distil-whisper/distil-large-v3-en"):
-    if not TOGETHERAI_API_KEY:
-        raise HTTPException(status_code=501, detail="Together AI API Key not configured.")
-    
+async def proxy_audio_transcription(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    model: str = Form(...),
+    language: str = Form(None),
+    prompt: str = Form(None),
+    response_format: str = Form("json"),
+    temperature: float = Form(0.0)
+):
+    """
+    Proxies audio transcription requests.
+    Automatically handles multipart boundary generation for the upstream API.
+    """
+    if not AUDIO_API_KEY:
+        raise HTTPException(status_code=500, detail="Audio provider API key is missing.")
+
     if get_current_spend() >= DAILY_BUDGET_LIMIT:
         raise HTTPException(status_code=402, detail="Daily budget limit exceeded.")
 
-    # Temporarily save the file
-    temp_path = Path(f"/tmp/{int(time.time())}_{file.filename}")
-    try:
-        with open(temp_path, "wb") as f:
-            f.write(await file.read())
-        
-        headers = {"Authorization": f"Bearer {TOGETHERAI_API_KEY}"}
-        files = {"file": (file.filename, open(temp_path, "rb"), file.content_type)}
-        data = {"model": model}
+    # Await the file stream into memory
+    file_bytes = await file.read()
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(BACKENDS["together_audio"], files=files, data=data, headers=headers)
-            if resp.status_code != 200:
-                return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
+    # Construct the payload exactly as the OpenAI spec requires
+    files = {
+        "file": (file.filename, file_bytes, file.content_type)
+    }
+    
+    data = {
+        "model": model,
+        "response_format": response_format,
+        "temperature": str(temperature)
+    }
+    
+    if language:
+        data["language"] = language
+    if prompt:
+        data["prompt"] = prompt
+
+    headers = {
+        "Authorization": f"Bearer {AUDIO_API_KEY}"
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                AUDIO_API_URL,
+                data=data,
+                files=files,
+                headers=headers,
+                timeout=120.0
+            )
+            response.raise_for_status()
             
-            resp_json = resp.json()
-            # Audio pricing is often per minute or per request. 
-            # Default to $0.005 per request for now.
+            resp_json = response.json()
+            
+            # Audio pricing: Default to $0.005 per request for now.
             cost = 0.005
             update_spend(cost)
             
-            background_tasks.add_task(log_completion, {"model": model, "tool": "audio_transcription"}, resp_json, "together_audio", cost_override=cost)
+            background_tasks.add_task(log_completion, {"model": model, "tool": "audio_transcription"}, resp_json, "audio_api", cost_override=cost)
+
             return resp_json
-    finally:
-        if temp_path.exists():
-            temp_path.unlink()
+            
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/v1/models")
 async def list_models():
