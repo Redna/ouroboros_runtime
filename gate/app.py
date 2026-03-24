@@ -16,9 +16,9 @@ app = FastAPI(title="Ouroboros Gate")
 # Configuration
 MEMORY_DIR = Path(os.getenv("MEMORY_DIR", "/memory"))
 LOG_DIR = MEMORY_DIR / "llm_logs"
-BUDGET_FILE = MEMORY_DIR / "budget.json"
+LEDGER_FILE = MEMORY_DIR / "financial_ledger.json"
 TOGETHERAI_API_KEY = os.getenv("TOGETHERAI_API_KEY", "")
-MAX_BUDGET = float(os.getenv("TOTAL_BUDGET", "1.0"))
+DAILY_BUDGET_LIMIT = float(os.getenv("DAILY_BUDGET_LIMIT", "5.00"))
 
 # State
 PRICING_CACHE: Dict[str, Dict[str, float]] = {}
@@ -68,25 +68,29 @@ async def startup_event():
     await refresh_pricing()
 
 def get_current_spend() -> float:
-    if not BUDGET_FILE.exists():
+    if not LEDGER_FILE.exists():
         return 0.0
     try:
-        data = json.loads(BUDGET_FILE.read_text())
-        return data.get("total_spend", 0.0)
+        data = json.loads(LEDGER_FILE.read_text())
+        today = time.strftime("%Y-%m-%d")
+        return data.get(today, 0.0)
     except:
         return 0.0
 
 def update_spend(cost: float):
+    if cost <= 0: return
     try:
-        current = get_current_spend()
-        new_total = current + cost
-        BUDGET_FILE.write_text(json.dumps({
-            "total_spend": new_total,
-            "last_updated": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "limit": MAX_BUDGET
-        }, indent=2))
+        data = {}
+        if LEDGER_FILE.exists():
+            try:
+                data = json.loads(LEDGER_FILE.read_text())
+            except:
+                pass
+        today = time.strftime("%Y-%m-%d")
+        data[today] = data.get(today, 0.0) + cost
+        LEDGER_FILE.write_text(json.dumps(data, indent=2))
     except Exception as e:
-        print(f"[Ouroboros Gate] Error updating budget: {e}")
+        print(f"[Ouroboros Gate] Error updating ledger: {e}")
 
 def calculate_cost(backend_key: str, model_id: str, usage: Dict[str, Any]) -> float:
     if backend_key == "local":
@@ -131,9 +135,6 @@ def log_completion(request_body: Dict[str, Any], response_body: Any, backend_key
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, background_tasks: BackgroundTasks):
-    if get_current_spend() >= MAX_BUDGET:
-        raise HTTPException(status_code=402, detail="Budget Limit Exceeded.")
-
     body = await request.json()
     model = body.get("model", "")
     is_streaming = body.get("stream", False)
@@ -143,6 +144,27 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
         backend_key = "together"
     else:
         backend_key = MODEL_MAP.get(model, "local")
+        
+    if backend_key != "local" and get_current_spend() >= DAILY_BUDGET_LIMIT:
+        return Response(
+            content=json.dumps({
+                "id": "mock-error",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": "error-model",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "SYSTEM ERROR: Daily budget limit exceeded. Switching to local LLM is required."
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            }),
+            status_code=200,
+            media_type="application/json"
+        )
         
     url = BACKENDS.get(backend_key, BACKENDS["local"])
     headers = {"Content-Type": "application/json"}
@@ -184,9 +206,12 @@ async def list_models():
             if resp.status_code == 200:
                 local_models = resp.json().get("data", [])
                 for m in local_models:
-                    m["id"] = m.get("id", "local-model")
-                    m["owned_by"] = "llamacpp"
-                    unified_models.append(m)
+                    unified_models.append({
+                        "id": m.get("id", "local-model"),
+                        "context_window": 65536, # Standard local context
+                        "cost_per_m_in": 0.0,
+                        "cost_per_m_out": 0.0
+                    })
     except Exception as e:
         print(f"[Ouroboros Gate] Could not fetch local models: {e}")
 
@@ -205,25 +230,37 @@ async def list_models():
                         # Filter for chat or language models only
                         m_type = m.get("type", "").lower()
                         if m_type in ["chat", "language"]:
-                            # Prefix Together models to distinguish them if needed
-                            # but keeping the original ID for API compatibility
+                            pricing = m.get("pricing", {})
                             unified_models.append({
                                 "id": f"together_ai/{m['id']}",
-                                "object": "model",
-                                "created": m.get("created", int(time.time())),
-                                "owned_by": m.get("organization", "together_ai")
+                                "context_window": m.get("context_length", 8192),
+                                "cost_per_m_in": pricing.get("input", 1.0),
+                                "cost_per_m_out": pricing.get("output", 1.0)
                             })
         except Exception as e:
             print(f"[Ouroboros Gate] Could not fetch Together AI models: {e}")
 
     return {"object": "list", "data": unified_models}
 
+@app.get("/v1/environment")
+async def check_environment():
+    models_resp = await list_models()
+    spend = get_current_spend()
+    return {
+        "budget": {
+            "daily_limit_usd": DAILY_BUDGET_LIMIT,
+            "current_spend_usd": spend,
+            "remaining_usd": max(0.0, DAILY_BUDGET_LIMIT - spend)
+        },
+        "models": models_resp["data"]
+    }
+
 @app.get("/health")
 async def health():
     return {
         "status": "healthy", 
         "engine": "Ouroboros Gate", 
-        "budget": f"{get_current_spend():.4f}/{MAX_BUDGET:.4f}",
+        "budget": f"{get_current_spend():.4f}/{DAILY_BUDGET_LIMIT:.4f}",
         "pricing_cached_models": len(PRICING_CACHE)
     }
 

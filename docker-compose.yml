@@ -35,6 +35,7 @@ services:
     environment:
       - TOGETHERAI_API_KEY=${TOGETHERAI_API_KEY:-}
       - MEMORY_DIR=/memory
+      - DAILY_BUDGET_LIMIT=${DAILY_BUDGET_LIMIT:-5.00}
     networks:
       - ouroboros_net
     depends_on:
