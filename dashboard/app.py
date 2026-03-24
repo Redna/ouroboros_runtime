@@ -177,13 +177,13 @@ async def get_full_state():
 @app.get("/api/identity")
 async def get_identity():
     identity_path = AGENT_DIR / "soul" / "identity.md"
-    bible_path = AGENT_DIR / "BIBLE.md"
+    constitution_path = AGENT_DIR / "CONSTITUTION.md"
     
     content = ""
     if identity_path.exists():
         content += identity_path.read_text() + "\n\n---\n\n"
-    if bible_path.exists():
-        content += bible_path.read_text()
+    if constitution_path.exists():
+        content += constitution_path.read_text()
         
     if not content:
         return {"html": "<p>Identity files not found.</p>"}
