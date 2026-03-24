@@ -129,18 +129,22 @@ def ensure_ouroboros_branch():
             return False
     return True
 
-def daemon_cleanup(sig, frame):
-    """Graceful shutdown: stop all containers."""
-    print("\n\033[93m[DAEMON] Shutdown signal received. Cleaning up stack...\033[0m")
+def cleanup(signum, frame):
+    """Graceful shutdown: stop all containers and remove PID file."""
+    print(f"\n\033[93m[CLI] Shutdown signal ({signum}) received. Cleaning up stack...\033[0m")
     compose_args = get_compose_args()
     subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=RUNTIME_DIR)
-    print("[DAEMON] Cleanup complete. Exiting.")
-    os._exit(0)
+    
+    if PID_FILE.exists():
+        PID_FILE.unlink()
+        
+    print("[CLI] Cleanup complete. Exiting.")
+    sys.exit(0)
 
 def run_daemon():
     """Infinite monitoring loop."""
-    signal.signal(signal.SIGINT, daemon_cleanup)
-    signal.signal(signal.SIGTERM, daemon_cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
     
     print("\033[94m[DAEMON] Ouroboros Watchdog Daemon Initialized.\033[0m")
     
@@ -221,10 +225,10 @@ def stop():
         pid = int(PID_FILE.read_text())
         if is_running(pid):
             print(f"\033[93m[CLI] Stopping Watchdog (PID: {pid})...\033[0m")
-            # Send SIGINT to trigger the daemon's internal cleanup()
-            os.kill(pid, signal.SIGINT)
+            # Send SIGTERM to the daemon. Its internal signal handler will run cleanup().
+            os.kill(pid, signal.SIGTERM)
             
-            # Wait for the process to exit (it should handle its own docker compose down)
+            # Wait for the process to exit
             timeout = 30
             start_wait = time.time()
             while is_running(pid) and (time.time() - start_wait < timeout):
@@ -236,13 +240,14 @@ def stop():
                 # If we had to kill it, we must ensure docker is down manually
                 compose_args = get_compose_args()
                 subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=str(RUNTIME_DIR))
+                if PID_FILE.exists():
+                    PID_FILE.unlink()
         else:
             print(f"[CLI] Watchdog process (PID: {pid}) is already gone.")
+            if PID_FILE.exists():
+                PID_FILE.unlink()
     except (ValueError, OSError) as e:
         print(f"[CLI] Error during stop: {e}")
-    finally:
-        if PID_FILE.exists():
-            PID_FILE.unlink()
 
     print("\033[92m[CLI] Ouroboros stopped.\033[0m")
 
