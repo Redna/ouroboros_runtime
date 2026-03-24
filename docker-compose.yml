@@ -12,7 +12,6 @@ services:
       - OUROBOROS_REPO_DIR=/app
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
-      - VLLM_BASE_URL=http://gate:4000/v1
       - UV_PROJECT_ENVIRONMENT=/venv
     volumes:
       - ../ouroboros_memory:/memory
