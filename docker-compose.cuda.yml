@@ -25,7 +25,7 @@ services:
       - -ngl
       - "99"
       - -c
-      - "65536"
+      - "102400"
       - -fa
       - "1"
       - --cache-type-k

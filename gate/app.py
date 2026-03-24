@@ -19,6 +19,7 @@ LOG_DIR = MEMORY_DIR / "llm_logs"
 LEDGER_FILE = MEMORY_DIR / "financial_ledger.json"
 TOGETHERAI_API_KEY = os.getenv("TOGETHERAI_API_KEY", "")
 DAILY_BUDGET_LIMIT = float(os.getenv("DAILY_BUDGET_LIMIT", "5.00"))
+LOCAL_CONTEXT_WINDOW = int(os.getenv("OUROBOROS_CONTEXT_WINDOW", "65536"))
 
 # State
 PRICING_CACHE: Dict[str, Dict[str, float]] = {}
@@ -208,7 +209,7 @@ async def list_models():
                 for m in local_models:
                     unified_models.append({
                         "id": m.get("id", "local-model"),
-                        "context_window": 65536, # Standard local context
+                        "context_window": LOCAL_CONTEXT_WINDOW,
                         "cost_per_m_in": 0.0,
                         "cost_per_m_out": 0.0
                     })
