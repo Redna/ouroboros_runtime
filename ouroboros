@@ -80,7 +80,7 @@ def capture_crash_log():
         CRASH_LOG_PATH.write_text(result.stdout, encoding="utf-8")
 
 def trigger_lazarus_reset(reason="Startup failure"):
-    print(f"\033[91m[DAEMON] PHOENIX PROTOCOL: {reason.upper()}. Executing Reset...\033[0m")
+    print(f"\033[91m[DAEMON] PHOENIX PROTOCOL: {reason.upper()}. Executing Reset...\033[0m", flush=True)
     capture_crash_log()
     run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
     run_cmd("git reset --hard HEAD~1", cwd=AGENT_DIR)
@@ -92,25 +92,25 @@ def trigger_lazarus_reset(reason="Startup failure"):
         f.write(f"Reason: {reason}\n")
 
 def cleanup(signum, frame):
-    print("\n\033[93m[DAEMON] Shutdown signal received. Cleaning up stack...\033[0m")
+    print("\n\033[93m[DAEMON] Shutdown signal received. Cleaning up stack...\033[0m", flush=True)
     compose_args = get_compose_args()
     subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=RUNTIME_DIR)
     if PID_FILE.exists():
         PID_FILE.unlink()
-    print("[DAEMON] Cleanup complete. Exiting.")
+    print("[DAEMON] Cleanup complete. Exiting.", flush=True)
     sys.exit(0)
 
 def run_daemon():
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
     
-    print("\033[94m[DAEMON] Ouroboros Supervisor Initialized.\033[0m")
+    print("\033[94m[DAEMON] Ouroboros Supervisor Initialized.\033[0m", flush=True)
     failure_count = 0
     compose_args = get_compose_args()
     
     while True:
         start_time = time.time()
-        print(f"\n[DAEMON] Starting Stack (Attempt {failure_count + 1})...")
+        print(f"\n[DAEMON] Starting Stack (Attempt {failure_count + 1})...", flush=True)
         
         run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
         
@@ -148,9 +148,9 @@ def start():
     log_f = open(LOG_FILE, "a", encoding="utf-8")
     
     # Start the watchdog in a new session to avoid being killed when this CLI exits
-    # We call ourselves with the 'daemon' command
+    # We call ourselves with the 'daemon' command. Use -u for unbuffered logs.
     proc = subprocess.Popen(
-        [sys.executable, __file__, "daemon"],
+        [sys.executable, "-u", __file__, "daemon"],
         stdout=log_f,
         stderr=subprocess.STDOUT,
         cwd=str(RUNTIME_DIR),
