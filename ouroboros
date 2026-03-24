@@ -25,8 +25,8 @@ CRASH_LOG_PATH = MEMORY_DIR / "last_crash.log"
 STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
 
 # Thresholds
-UPTIME_STABILITY_THRESHOLD = 60
-MAX_STARTUP_FAILURES = 2
+UPTIME_STABILITY_THRESHOLD = int(os.environ.get("UPTIME_STABILITY_THRESHOLD", 60))
+MAX_STARTUP_FAILURES = int(os.environ.get("MAX_STARTUP_FAILURES", 2))
 
 def ensure_run_dir():
     if not RUN_DIR.exists():
@@ -59,113 +59,55 @@ def confirm(prompt="Are you sure you want to proceed?"):
 # --- Watchdog Functions ---
 
 def get_compose_args():
-    """Auto-detects GPU hardware to select the correct compose overrides."""
     base_compose = "-f docker-compose.yml"
     if Path("/dev/kfd").exists():
-        print("\033[96m[DAEMON] Hardware Detect: AMD GPU found. Loading ROCm backend.\033[0m")
         return f"{base_compose} -f docker-compose.rocm.yml"
-    else:
-        print("\033[92m[DAEMON] Hardware Detect: Defaulting to NVIDIA CUDA backend.\033[0m")
-        return f"{base_compose} -f docker-compose.cuda.yml"
+    return f"{base_compose} -f docker-compose.cuda.yml"
 
 def capture_crash_log():
-    """Captures the last 50 lines of logs from the agent container."""
-    print("[DAEMON] Capturing crash log for Ouroboros...")
     compose_args = get_compose_args()
-    result = subprocess.run(
-        f"docker compose {compose_args} logs --tail=50 ouroboros", 
-        shell=True, cwd=RUNTIME_DIR, capture_output=True, text=True
-    )
+    result = run_cmd(f"docker compose {compose_args} logs --tail=50 ouroboros", cwd=RUNTIME_DIR, check=False)
     if result.stdout:
-        if not MEMORY_DIR.exists(): MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         CRASH_LOG_PATH.write_text(result.stdout, encoding="utf-8")
-        print(f"[DAEMON] Log saved to {CRASH_LOG_PATH}")
 
 def trigger_lazarus_reset(reason="Startup failure"):
-    """Performs a host-side git rollback to recover from a broken agent state."""
     print(f"\033[91m[DAEMON] PHOENIX PROTOCOL: {reason.upper()}. Executing Reset...\033[0m")
-    
     capture_crash_log()
-    ensure_ouroboros_branch()
+    run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
+    run_cmd("git reset --hard HEAD~1", cwd=AGENT_DIR)
+    run_cmd("git clean -fd", cwd=AGENT_DIR)
     
-    subprocess.run("git reset --hard HEAD~1", shell=True, cwd=AGENT_DIR)
-    subprocess.run("git clean -fd", shell=True, cwd=AGENT_DIR)
-    
-    if not MEMORY_DIR.exists(): MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     with open(SCRATCHPAD_PATH, "a", encoding="utf-8") as f:
         f.write(f"\n\n--- PHOENIX RECOVERY ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
         f.write(f"Reason: {reason}\n")
-    print("[DAEMON] Phoenix Reset complete. Restarting stack...")
-
-def update_runtime_stats():
-    stats = {"restart_count": 0, "last_start_time": time.time()}
-    if STATS_FILE.exists():
-        try:
-            with open(STATS_FILE, "r") as f:
-                stats = json.load(f)
-        except:
-            pass
-    stats["restart_count"] = stats.get("restart_count", 0) + 1
-    stats["last_start_time"] = time.time()
-    if not MEMORY_DIR.exists(): MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    with open(STATS_FILE, "w") as f:
-        json.dump(stats, f)
-
-def ensure_ouroboros_branch():
-    """Checks if 'ouroboros' branch exists, creates it from 'true-seed' if not."""
-    print("[DAEMON] Verifying 'ouroboros' branch...")
-    result = subprocess.run("git branch --list ouroboros", shell=True, cwd=AGENT_DIR, capture_output=True, text=True)
-    
-    if not result.stdout.strip():
-        print("[DAEMON] Branch 'ouroboros' missing! Recreating from 'true-seed'...")
-        rc = subprocess.run("git checkout -b ouroboros true-seed", shell=True, cwd=AGENT_DIR).returncode
-        if rc != 0:
-            print("[DAEMON] FATAL: Could not create 'ouroboros' branch from 'true-seed'.")
-            return False
-    else:
-        rc = subprocess.run("git checkout ouroboros", shell=True, cwd=AGENT_DIR).returncode
-        if rc != 0:
-            print("[DAEMON] FATAL: Could not switch to 'ouroboros' branch.")
-            return False
-    return True
 
 def cleanup(signum, frame):
-    """Graceful shutdown: stop all containers and remove PID file."""
-    print(f"\n\033[93m[CLI] Shutdown signal ({signum}) received. Cleaning up stack...\033[0m")
+    print("\n\033[93m[DAEMON] Shutdown signal received. Cleaning up stack...\033[0m")
     compose_args = get_compose_args()
     subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=RUNTIME_DIR)
-    
     if PID_FILE.exists():
         PID_FILE.unlink()
-        
-    print("[CLI] Cleanup complete. Exiting.")
+    print("[DAEMON] Cleanup complete. Exiting.")
     sys.exit(0)
 
 def run_daemon():
-    """Infinite monitoring loop."""
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
     
-    print("\033[94m[DAEMON] Ouroboros Watchdog Daemon Initialized.\033[0m")
-    
+    print("\033[94m[DAEMON] Ouroboros Supervisor Initialized.\033[0m")
     failure_count = 0
     compose_args = get_compose_args()
     
     while True:
-        update_runtime_stats()
         start_time = time.time()
-        print(f"\n[DAEMON] Starting Unified Ouroboros Stack (Attempt {failure_count + 1})...")
+        print(f"\n[DAEMON] Starting Stack (Attempt {failure_count + 1})...")
         
-        if not ensure_ouroboros_branch():
-            print("[DAEMON] Branch error. Waiting 30s before retry...")
-            time.sleep(30)
-            continue
-
-        # Monitor the entire stack (all services) using the dynamically selected files
-        exit_code = subprocess.run(f"docker compose {compose_args} up --build --abort-on-container-exit", shell=True, cwd=RUNTIME_DIR).returncode
+        run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
         
+        exit_code = run_cmd(f"docker compose {compose_args} up --build --abort-on-container-exit", cwd=RUNTIME_DIR, check=False).returncode
         uptime = time.time() - start_time
-        print(f"[DAEMON] Agent process ended. Uptime: {uptime:.1f}s | Exit Code: {exit_code}")
         
         if uptime < UPTIME_STABILITY_THRESHOLD and exit_code != 0:
             failure_count += 1
