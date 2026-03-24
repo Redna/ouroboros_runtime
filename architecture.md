@@ -6,7 +6,7 @@ This document outlines the architecture of the Ouroboros project (v4.1). It mark
 
 ## 1. Core Philosophy (The Constitution)
 
-The architectural design is driven by the foundational principles defined in `BIBLE.md` and `soul/identity.md`:
+The architectural design is driven by the foundational principles defined in `CONSTITUTION.md` and `soul/identity.md`:
 * **Agency (P0) & LLM-First (P3):** Python does not decide the agent's mode. The LLM observes its environment and autonomously transitions states via native tool calling.
 * **Minimalism (P5):** The Python core (`seed_agent.py`) is strictly a hardware abstraction layer (HAL) and API router. Infrastructure concerns (like LLM observability) are offloaded to proxy layers.
 * **Cognitive Synthesis (P9):** The agent is mandated to deduplicate findings and synthesize higher-order wisdom to prevent context degradation.
