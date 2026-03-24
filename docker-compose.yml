@@ -19,7 +19,6 @@ services:
     networks:
       - ouroboros_net
     depends_on:
-      - llamacpp
       - searxng
       - gate
 
@@ -39,8 +38,6 @@ services:
       - OUROBOROS_CONTEXT_WINDOW=${OUROBOROS_CONTEXT_WINDOW:-65536}
     networks:
       - ouroboros_net
-    depends_on:
-      - llamacpp
 
   searxng:
     container_name: searxng

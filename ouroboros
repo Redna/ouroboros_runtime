@@ -60,6 +60,14 @@ def confirm(prompt="Are you sure you want to proceed?"):
 
 def get_compose_args():
     base_compose = "-f docker-compose.yml"
+    
+    # Check if the user explicitly disabled the local LLM
+    use_local = os.environ.get("USE_LOCAL_LLM", "true").lower() == "true"
+    
+    if not use_local:
+        print("\033[93m[DAEMON] Local LLM disabled via .env. Running Cloud-Only mode.\033[0m")
+        return base_compose
+        
     if Path("/dev/kfd").exists():
         return f"{base_compose} -f docker-compose.rocm.yml"
     return f"{base_compose} -f docker-compose.cuda.yml"
