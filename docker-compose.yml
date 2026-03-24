@@ -4,7 +4,6 @@ services:
       context: ..
       dockerfile: ouroboros_runtime/Dockerfile
     container_name: ouroboros_agent
-    restart: unless-stopped
     security_opt:
       - seccomp=unconfined
     env_file: .env
@@ -29,7 +28,6 @@ services:
       context: ./gate
       dockerfile: Dockerfile
     container_name: ouroboros_gate
-    restart: unless-stopped
     ports:
       - "4000:4000"
     volumes:
@@ -45,7 +43,6 @@ services:
   searxng:
     container_name: searxng
     image: docker.io/searxng/searxng:latest
-    restart: unless-stopped
     networks:
       - ouroboros_net
     ports:
@@ -61,7 +58,6 @@ services:
     container_name: redis
     image: docker.io/library/redis:7-alpine
     command: redis-server --save 60 1 --loglevel warning
-    restart: unless-stopped
     networks:
       - ouroboros_net
     volumes:
@@ -72,7 +68,6 @@ services:
       context: .
       dockerfile: Dockerfile.dashboard
     container_name: ouroboros_dashboard
-    restart: unless-stopped
     ports:
       - "8082:8000"
     volumes:
