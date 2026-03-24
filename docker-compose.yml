@@ -12,7 +12,7 @@ services:
       - OUROBOROS_REPO_DIR=/app
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
-      - VLLM_BASE_URL=http://litellm:4000/v1
+      - VLLM_BASE_URL=http://gate:4000/v1
       - UV_PROJECT_ENVIRONMENT=/venv
     volumes:
       - ../ouroboros_memory:/memory
@@ -23,22 +23,21 @@ services:
     depends_on:
       - llamacpp
       - searxng
-      - litellm
+      - gate
 
-  litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: litellm_proxy
+  gate:
+    build:
+      context: ./gate
+      dockerfile: Dockerfile
+    container_name: ouroboros_gate
     restart: unless-stopped
     ports:
       - "4000:4000"
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
-      - ./litellm/custom_logger.py:/app/custom_logger.py:ro
       - ../ouroboros_memory:/memory:rw
     environment:
-      - LITELLM_LOG=INFO
       - TOGETHERAI_API_KEY=${TOGETHERAI_API_KEY:-}
-    command: [ "--config", "/app/config.yaml", "--detailed_debug" ]
+      - MEMORY_DIR=/memory
     networks:
       - ouroboros_net
     depends_on:

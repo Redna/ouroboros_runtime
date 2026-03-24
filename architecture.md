@@ -49,8 +49,8 @@ Ouroboros maintains a single-threaded ReAct loop but supports OS-level hardware 
 
 The system runs within an isolated Docker environment (`ouroboros_runtime`).
 
-* **The World (Docker Stack):** Hosts the LLM Engine (`llamacpp`), Search (`searxng`), and the LiteLLM Proxy.
-* **The Proxy (LiteLLM):** Routes traffic to local or external models (e.g., TogetherAI). It utilizes a custom Python callback to passively record all LLM traces to `/memory/llm_logs`, entirely removing this burden from the agent's core code.
+* **The World (Docker Stack):** Hosts the LLM Engine (`llamacpp`), Search (`searxng`), and the Ouroboros Gate.
+* **The Proxy (Ouroboros Gate):** A custom, lightweight Python gateway (FastAPI) that routes traffic to local (llama.cpp) or external (TogetherAI) backends. It provides isolation for API tokens and passively records all LLM traces to `/memory/llm_logs`, entirely removing this burden from the agent's core code.
 * **The Watchdog (`watchdog.py`):** The host-side supervisor. Manages container lifecycle and executes the Phoenix Protocol (Git reset) if the agent corrupts its own Python body.
 * **The Memory (`/memory`):** A persistent volume mapping. The only source of truth for the agent's state (`.agent_state.json`), queues, and historical archives.
 
