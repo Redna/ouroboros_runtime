@@ -322,8 +322,8 @@ async def list_models():
                         "cost_per_m_out": 0.0,
                         "modalities": ["text"]
                     })
-    except Exception as e:
-        print(f"[Ouroboros Gate] Could not fetch local models: {e}")
+    except (httpx.RequestError, httpx.HTTPStatusError, Exception):
+        pass # Local LLM is offline or disabled, ignore silently.
 
     # 2. Add Together AI models
     if TOGETHERAI_API_KEY:
@@ -358,8 +358,8 @@ async def list_models():
                                 "cost_per_m_out": pricing.get("output", 1.0),
                                 "modalities": modalities
                             })
-        except Exception as e:
-            print(f"[Ouroboros Gate] Could not fetch Together AI models: {e}")
+        except (httpx.RequestError, httpx.HTTPStatusError, Exception):
+            pass # External API unreachable or key invalid
 
     return {"object": "list", "data": unified_models}
 
