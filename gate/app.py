@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional, AsyncGenerator
 import httpx
-from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException
+from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, File, UploadFile
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
@@ -27,7 +27,9 @@ PRICING_CACHE: Dict[str, Dict[str, float]] = {}
 # Routing configuration
 BACKENDS = {
     "local": "http://llamacpp:8080/v1/chat/completions",
-    "together": "https://api.together.xyz/v1/chat/completions"
+    "together": "https://api.together.xyz/v1/chat/completions",
+    "together_images": "https://api.together.xyz/v1/images/generations",
+    "together_audio": "https://api.together.xyz/v1/audio/transcriptions"
 }
 
 # Explicit model mapping
@@ -57,7 +59,8 @@ async def refresh_pricing():
                     if pid and pricing:
                         new_cache[pid] = {
                             "input": pricing.get("input", 0.0),
-                            "output": pricing.get("output", 0.0)
+                            "output": pricing.get("output", 0.0),
+                            "base": pricing.get("base", 0.0) # Used for fixed price models like images
                         }
                 PRICING_CACHE = new_cache
                 print(f"[Ouroboros Gate] Refreshed pricing for {len(PRICING_CACHE)} models.")
@@ -100,22 +103,26 @@ def calculate_cost(backend_key: str, model_id: str, usage: Dict[str, Any]) -> fl
     # Strip our internal prefix if present
     clean_model_id = model_id.replace("together_ai/", "")
     # Default to $1.0 if not found in cache
-    pricing = PRICING_CACHE.get(clean_model_id, {"input": 1.0, "output": 1.0})
+    pricing = PRICING_CACHE.get(clean_model_id, {"input": 1.0, "output": 1.0, "base": 0.0})
     
+    # For fixed price models (like images)
+    if pricing.get("base", 0.0) > 0 and not usage.get("total_tokens"):
+        return pricing["base"]
+
     input_tokens = usage.get("prompt_tokens", 0)
     output_tokens = usage.get("completion_tokens", 0)
     
     cost = (input_tokens / 1_000_000 * pricing["input"]) + (output_tokens / 1_000_000 * pricing["output"])
     return cost
 
-def log_completion(request_body: Dict[str, Any], response_body: Any, backend_key: str, is_stream: bool = False):
+def log_completion(request_body: Dict[str, Any], response_body: Any, backend_key: str, is_stream: bool = False, cost_override: float = 0.0):
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         timestamp_str = time.strftime("%Y%m%d-%H%M%S")
         log_file = LOG_DIR / f"call-{timestamp_str}-{int(time.time())}.json"
         
-        cost = 0.0
-        if not is_stream and isinstance(response_body, dict):
+        cost = cost_override
+        if cost == 0.0 and not is_stream and isinstance(response_body, dict):
             usage = response_body.get("usage", {})
             model_id = request_body.get("model", "unknown")
             cost = calculate_cost(backend_key, model_id, usage)
@@ -195,9 +202,74 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
             background_tasks.add_task(log_completion, body, resp_json, backend_key)
             return resp_json
 
+@app.post("/v1/images/generations")
+async def generate_images(request: Request, background_tasks: BackgroundTasks):
+    if not TOGETHERAI_API_KEY:
+        raise HTTPException(status_code=501, detail="Together AI API Key not configured.")
+    
+    if get_current_spend() >= DAILY_BUDGET_LIMIT:
+        raise HTTPException(status_code=402, detail="Daily budget limit exceeded.")
+
+    body = await request.json()
+    model = body.get("model", "stabilityai/stable-diffusion-xl-base-1.0")
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {TOGETHERAI_API_KEY}"
+    }
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(BACKENDS["together_images"], json=body, headers=headers)
+        if resp.status_code != 200:
+            return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
+        
+        resp_json = resp.json()
+        # Together image pricing is often fixed per image. Default to $0.01 if unknown.
+        pricing = PRICING_CACHE.get(model, {"base": 0.01})
+        cost = pricing.get("base", 0.01)
+        
+        update_spend(cost)
+        background_tasks.add_task(log_completion, body, resp_json, "together_images", cost_override=cost)
+        return resp_json
+
+@app.post("/v1/audio/transcriptions")
+async def transcribe_audio(background_tasks: BackgroundTasks, file: UploadFile = File(...), model: str = "distil-whisper/distil-large-v3-en"):
+    if not TOGETHERAI_API_KEY:
+        raise HTTPException(status_code=501, detail="Together AI API Key not configured.")
+    
+    if get_current_spend() >= DAILY_BUDGET_LIMIT:
+        raise HTTPException(status_code=402, detail="Daily budget limit exceeded.")
+
+    # Temporarily save the file
+    temp_path = Path(f"/tmp/{int(time.time())}_{file.filename}")
+    try:
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
+        
+        headers = {"Authorization": f"Bearer {TOGETHERAI_API_KEY}"}
+        files = {"file": (file.filename, open(temp_path, "rb"), file.content_type)}
+        data = {"model": model}
+
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(BACKENDS["together_audio"], files=files, data=data, headers=headers)
+            if resp.status_code != 200:
+                return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
+            
+            resp_json = resp.json()
+            # Audio pricing is often per minute or per request. 
+            # Default to $0.005 per request for now.
+            cost = 0.005
+            update_spend(cost)
+            
+            background_tasks.add_task(log_completion, {"model": model, "tool": "audio_transcription"}, resp_json, "together_audio", cost_override=cost)
+            return resp_json
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
 @app.get("/v1/models")
 async def list_models():
-    """Aggregates models from local llama.cpp and Together AI."""
+    """Aggregates models from local llama.cpp and Together AI with modality mapping."""
     unified_models = []
 
     # 1. Add local llama.cpp models
@@ -211,7 +283,8 @@ async def list_models():
                         "id": m.get("id", "local-model"),
                         "context_window": LOCAL_CONTEXT_WINDOW,
                         "cost_per_m_in": 0.0,
-                        "cost_per_m_out": 0.0
+                        "cost_per_m_out": 0.0,
+                        "modalities": ["text"]
                     })
     except Exception as e:
         print(f"[Ouroboros Gate] Could not fetch local models: {e}")
@@ -228,15 +301,26 @@ async def list_models():
                 if resp.status_code == 200:
                     together_models = resp.json()
                     for m in together_models:
-                        # Filter for chat or language models only
                         m_type = m.get("type", "").lower()
-                        if m_type in ["chat", "language"]:
+                        m_id = m.get("id", "")
+                        
+                        modalities = ["text"]
+                        if "vision" in m_id.lower() or "vision" in m_type:
+                            modalities.append("vision")
+                        elif m_type == "image":
+                            modalities = ["image_generation"]
+                        elif m_type == "audio":
+                            modalities = ["audio_transcription"]
+                        
+                        # Only include relevant types
+                        if m_type in ["chat", "language", "image", "audio"]:
                             pricing = m.get("pricing", {})
                             unified_models.append({
-                                "id": f"together_ai/{m['id']}",
-                                "context_window": m.get("context_length", 8192),
+                                "id": f"together_ai/{m_id}",
+                                "context_window": m.get("context_length", 8192) if modalities[0] == "text" else 0,
                                 "cost_per_m_in": pricing.get("input", 1.0),
-                                "cost_per_m_out": pricing.get("output", 1.0)
+                                "cost_per_m_out": pricing.get("output", 1.0),
+                                "modalities": modalities
                             })
         except Exception as e:
             print(f"[Ouroboros Gate] Could not fetch Together AI models: {e}")
