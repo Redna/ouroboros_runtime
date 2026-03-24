@@ -186,23 +186,58 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
 
     if is_streaming:
         async def stream_proxy() -> AsyncGenerator[bytes, None]:
-            async with httpx.AsyncClient(timeout=600.0) as client:
-                async with client.stream("POST", url, json=body, headers=headers) as resp:
-                    async for chunk in resp.aiter_bytes():
-                        yield chunk
-            background_tasks.add_task(log_completion, body, {"status": "stream_completed"}, backend_key, True)
+            try:
+                async with httpx.AsyncClient(timeout=600.0) as client:
+                    async with client.stream("POST", url, json=body, headers=headers) as resp:
+                        resp.raise_for_status()
+                        async for chunk in resp.aiter_bytes():
+                            yield chunk
+                background_tasks.add_task(log_completion, body, {"status": "stream_completed"}, backend_key, True)
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                error_payload = {
+                    "error": {
+                        "message": f"Gateway Error: Model '{model}' is currently unreachable or offline. Please check available models or fallback to the local engine. Details: {str(e)}",
+                        "type": "server_error",
+                        "code": "model_offline"
+                    }
+                }
+                yield json.dumps(error_payload).encode("utf-8")
 
         return StreamingResponse(stream_proxy(), media_type="text/event-stream")
     
     else:
-        async with httpx.AsyncClient(timeout=600.0) as client:
-            resp = await client.post(url, json=body, headers=headers)
-            if resp.status_code != 200:
-                return Response(content=resp.content, status_code=resp.status_code, media_type="application/json")
-            
-            resp_json = resp.json()
-            background_tasks.add_task(log_completion, body, resp_json, backend_key)
-            return resp_json
+        try:
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                resp = await client.post(url, json=body, headers=headers)
+                resp.raise_for_status()
+                
+                resp_json = resp.json()
+                background_tasks.add_task(log_completion, body, resp_json, backend_key)
+                return resp_json
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            return Response(
+                content=json.dumps({
+                    "error": {
+                        "message": f"Gateway Error: Model '{model}' is currently unreachable or offline. Please check available models or fallback to the local engine. Details: {str(e)}",
+                        "type": "server_error",
+                        "code": "model_offline"
+                    }
+                }),
+                status_code=503,
+                media_type="application/json"
+            )
+        except Exception as e:
+            return Response(
+                content=json.dumps({
+                    "error": {
+                        "message": f"Gateway Critical Error: {str(e)}",
+                        "type": "server_error",
+                        "code": "internal_error"
+                    }
+                }),
+                status_code=500,
+                media_type="application/json"
+            )
 
 @app.post("/v1/images/generations")
 async def generate_images(request: Request, background_tasks: BackgroundTasks):
