@@ -2,7 +2,6 @@ services:
   llamacpp:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: llamacpp
-    restart: unless-stopped
     shm_size: 16G
     cap_add:
       - SYS_PTRACE

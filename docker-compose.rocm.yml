@@ -2,7 +2,6 @@ services:
   llamacpp:
     image: ghcr.io/ggml-org/llama.cpp:server-rocm
     container_name: llamacpp
-    restart: unless-stopped
     privileged: true
     shm_size: 16G
     devices:
