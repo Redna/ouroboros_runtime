@@ -172,6 +172,52 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
             background_tasks.add_task(log_completion, body, resp_json, backend_key)
             return resp_json
 
+@app.get("/v1/models")
+async def list_models():
+    """Aggregates models from local llama.cpp and Together AI."""
+    unified_models = []
+
+    # 1. Add local llama.cpp models
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://llamacpp:8080/v1/models", timeout=5.0)
+            if resp.status_code == 200:
+                local_models = resp.json().get("data", [])
+                for m in local_models:
+                    m["id"] = m.get("id", "local-model")
+                    m["owned_by"] = "llamacpp"
+                    unified_models.append(m)
+    except Exception as e:
+        print(f"[Ouroboros Gate] Could not fetch local models: {e}")
+
+    # 2. Add Together AI models
+    if TOGETHERAI_API_KEY:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://api.together.xyz/v1/models",
+                    headers={"Authorization": f"Bearer {TOGETHERAI_API_KEY}"},
+                    timeout=10.0
+                )
+                if resp.status_code == 200:
+                    together_models = resp.json()
+                    for m in together_models:
+                        # Filter for chat or language models only
+                        m_type = m.get("type", "").lower()
+                        if m_type in ["chat", "language"]:
+                            # Prefix Together models to distinguish them if needed
+                            # but keeping the original ID for API compatibility
+                            unified_models.append({
+                                "id": f"together_ai/{m['id']}",
+                                "object": "model",
+                                "created": m.get("created", int(time.time())),
+                                "owned_by": m.get("organization", "together_ai")
+                            })
+        except Exception as e:
+            print(f"[Ouroboros Gate] Could not fetch Together AI models: {e}")
+
+    return {"object": "list", "data": unified_models}
+
 @app.get("/health")
 async def health():
     return {
