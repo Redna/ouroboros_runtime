@@ -27,6 +27,7 @@ STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
 # Thresholds
 UPTIME_STABILITY_THRESHOLD = int(os.environ.get("UPTIME_STABILITY_THRESHOLD", 60))
 MAX_STARTUP_FAILURES = int(os.environ.get("MAX_STARTUP_FAILURES", 2))
+MAX_COGNITIVE_STALL_SECONDS = int(os.environ.get("MAX_COGNITIVE_STALL_SECONDS", 300))
 
 def ensure_run_dir():
     if not RUN_DIR.exists():
@@ -38,6 +39,21 @@ def is_running(pid):
         return True
     except (OSError, ProcessLookupError):
         return False
+
+def check_cognitive_heartbeat() -> bool:
+    """Returns True if the mind is active, False if it has stalled."""
+    # Find the most recently modified log file
+    log_files = list(MEMORY_DIR.glob("task_log_*.jsonl"))
+    if not log_files:
+        return True # No tasks yet, assume healthy idle
+        
+    latest_log = max(log_files, key=os.path.getmtime)
+    time_since_last_thought = time.time() - os.path.getmtime(latest_log)
+    
+    if time_since_last_thought > MAX_COGNITIVE_STALL_SECONDS:
+        print(f"\033[93m[DAEMON] Cognitive stall detected! No thoughts written to {latest_log.name} for {time_since_last_thought:.1f}s.\033[0m")
+        return False
+    return True
 
 def run_cmd(cmd, cwd=None, check=True, capture=True):
     try:
@@ -114,13 +130,39 @@ def run_daemon():
         
         run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
         
-        exit_code = run_cmd(f"docker compose {compose_args} up --build --abort-on-container-exit", cwd=RUNTIME_DIR, check=False, capture=False).returncode
+        # We use Popen instead of run_cmd to allow background monitoring of the heartrate
+        cmd = f"docker compose {compose_args} up --build --abort-on-container-exit"
+        process = subprocess.Popen(cmd, shell=True, cwd=RUNTIME_DIR)
+        
+        exit_code = None
+        stalled = False
+        while exit_code is None:
+            exit_code = process.poll()
+            if exit_code is not None:
+                break
+            
+            # New Heartbeat Monitor
+            if not check_cognitive_heartbeat():
+                # If the mind is frozen, stop the container to force a restart
+                print("[DAEMON] Executing targeted restart of frozen agent...")
+                subprocess.run(f"docker compose {compose_args} stop ouroboros", shell=True, cwd=RUNTIME_DIR, capture_output=True)
+                # The --abort-on-container-exit will trigger the process to exit soon
+                # We don't trigger a full git reset here, just a restart, as the code might be fine, just a hung LLM request.
+                stalled = True
+                break
+            
+            time.sleep(30)
+            
+        if stalled:
+            time.sleep(5)
+            continue # Let the loop restart the container naturally
+            
         uptime = time.time() - start_time
         
         if uptime < UPTIME_STABILITY_THRESHOLD and exit_code != 0:
             failure_count += 1
             if failure_count >= MAX_STARTUP_FAILURES:
-                trigger_lazarus_reset()
+                trigger_lazarus_reset("Consecutive startup failures or cognitive stalls")
                 failure_count = 0
         else:
             failure_count = 0
