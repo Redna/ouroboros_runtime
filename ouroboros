@@ -27,7 +27,7 @@ STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
 # Thresholds
 UPTIME_STABILITY_THRESHOLD = int(os.environ.get("UPTIME_STABILITY_THRESHOLD", 60))
 MAX_STARTUP_FAILURES = int(os.environ.get("MAX_STARTUP_FAILURES", 2))
-MAX_COGNITIVE_STALL_SECONDS = int(os.environ.get("MAX_COGNITIVE_STALL_SECONDS", 300))
+MAX_COGNITIVE_STALL_SECONDS = int(os.environ.get("MAX_COGNITIVE_STALL_SECONDS", 600))
 
 def ensure_run_dir():
     if not RUN_DIR.exists():
@@ -40,7 +40,7 @@ def is_running(pid):
     except (OSError, ProcessLookupError):
         return False
 
-def check_cognitive_heartbeat() -> bool:
+def check_cognitive_heartbeat(session_start_time: float) -> bool:
     """Returns True if the mind is active, False if it has stalled."""
     # Find the most recently modified log file
     log_files = list(MEMORY_DIR.glob("task_log_*.jsonl"))
@@ -48,7 +48,13 @@ def check_cognitive_heartbeat() -> bool:
         return True # No tasks yet, assume healthy idle
         
     latest_log = max(log_files, key=os.path.getmtime)
-    time_since_last_thought = time.time() - os.path.getmtime(latest_log)
+    mtime = os.path.getmtime(latest_log)
+    
+    # FIX: Ignore logs that haven't been modified during this session yet
+    if mtime < session_start_time:
+        return True
+
+    time_since_last_thought = time.time() - mtime
     
     if time_since_last_thought > MAX_COGNITIVE_STALL_SECONDS:
         print(f"\033[93m[DAEMON] Cognitive stall detected! No thoughts written to {latest_log.name} for {time_since_last_thought:.1f}s.\033[0m")
@@ -142,14 +148,16 @@ def run_daemon():
                 break
             
             # New Heartbeat Monitor
-            if not check_cognitive_heartbeat():
-                # If the mind is frozen, stop the container to force a restart
-                print("[DAEMON] Executing targeted restart of frozen agent...")
-                subprocess.run(f"docker compose {compose_args} stop ouroboros", shell=True, cwd=RUNTIME_DIR, capture_output=True)
-                # The --abort-on-container-exit will trigger the process to exit soon
-                # We don't trigger a full git reset here, just a restart, as the code might be fine, just a hung LLM request.
-                stalled = True
-                break
+            uptime = time.time() - start_time
+            # FIX: Only check for stalls after a grace period (build/boot time)
+            if uptime > UPTIME_STABILITY_THRESHOLD:
+                if not check_cognitive_heartbeat(start_time):
+                    # If the mind is frozen, stop the container to force a restart
+                    print("[DAEMON] Executing targeted restart of frozen agent...")
+                    subprocess.run(f"docker compose {compose_args} stop ouroboros", shell=True, cwd=RUNTIME_DIR, capture_output=True)
+                    # The --abort-on-container-exit will trigger the process to exit soon
+                    stalled = True
+                    break
             
             time.sleep(30)
             
