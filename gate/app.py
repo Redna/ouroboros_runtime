@@ -15,7 +15,7 @@ app = FastAPI(title="Ouroboros Gate")
 
 # Configuration
 MEMORY_DIR = Path(os.getenv("MEMORY_DIR", "/memory"))
-LOG_DIR = MEMORY_DIR / "llm_logs"
+LOG_DIR = Path(os.getenv("RUNTIME_LOG_DIR", "/runtime_logs"))
 LEDGER_FILE = MEMORY_DIR / "financial_ledger.json"
 TOGETHERAI_API_KEY = os.getenv("TOGETHERAI_API_KEY", "")
 DAILY_BUDGET_LIMIT = float(os.getenv("DAILY_BUDGET_LIMIT", "5.00"))
