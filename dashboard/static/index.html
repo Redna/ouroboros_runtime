@@ -19,6 +19,7 @@
         <button class="tab-btn" onclick="showSection('bio')">Bio</button>
         <button class="tab-btn" onclick="showSection('state')">State</button>
         <button class="tab-btn" onclick="showSection('history')">History</button>
+        <button class="tab-btn" onclick="showSection('timeline')">Timeline</button>
         <button class="tab-btn" onclick="showSection('llm')">LLM</button>
     </nav>
 
@@ -55,6 +56,11 @@
                     <h3>Uptime</h3>
                     <p id="uptime-display">00:00:00</p>
                     <small id="last-start-label">Current Session</small>
+                </div>
+                <div class="card">
+                    <h3>Budget</h3>
+                    <p>$<span id="daily-spend">0.00</span> / $<span id="daily-budget">0.00</span></p>
+                    <small>Daily Limit (USD)</small>
                 </div>
                 <div class="card">
                     <h3>Restarts</h3>
@@ -130,6 +136,30 @@
                     Accessing state...
                 </pre>
             </section>
+        </div>
+
+        <!-- Timeline Section -->
+        <div id="section-timeline" class="tab-content">
+            <div class="timeline-layout">
+                <section class="card timeline-sidebar">
+                    <h2>Task Architecture</h2>
+                    <div id="timeline-list" class="scroll-box">
+                        Loading hierarchy...
+                    </div>
+                </section>
+                <section class="card timeline-detail">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; margin-bottom: 12px; padding-bottom: 8px;">
+                        <h2 id="timeline-task-title" style="border: none; margin: 0; padding: 0;">Select a task</h2>
+                        <button id="toggle-trunk-context" class="copy-btn" style="display: none;" onclick="toggleMentalState()">View Mental State</button>
+                    </div>
+                    <div id="timeline-task-log" class="scroll-box">
+                        Task logs will appear here.
+                    </div>
+                    <div id="trunk-context-container" class="scroll-box context-view" style="display: none;">
+                        Rendering mental state...
+                    </div>
+                </section>
+            </div>
         </div>
 
         <!-- LLM Section -->

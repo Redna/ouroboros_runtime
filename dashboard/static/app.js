@@ -3,7 +3,12 @@ let lastStartTime = 0;
 function showSection(sectionId) {
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.innerText.toLowerCase() === sectionId) btn.classList.add('active');
+        // Extract section from onclick attribute or data-section if we had one
+        // For now, let's just match against a lowercase version of the text as a fallback,
+        // but prefer an explicit mapping if the button corresponds to the sectionId.
+        if (btn.getAttribute('onclick').includes(`'${sectionId}'`)) {
+            btn.classList.add('active');
+        }
     });
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
@@ -14,6 +19,7 @@ function showSection(sectionId) {
     if (sectionId === 'bio') updateBiography();
     if (sectionId === 'state') updateFullState();
     if (sectionId === 'history') updateHistory();
+    if (sectionId === 'timeline') updateTimeline();
     if (sectionId === 'llm') updateLLMLogs();
 }
 
@@ -27,6 +33,10 @@ async function updateStatus() {
         if (document.getElementById('global-output-tokens')) document.getElementById('global-output-tokens').innerText = (data.global_output_tokens || 0).toLocaleString();
         if (document.getElementById('restart-count')) document.getElementById('restart-count').innerText = data.restarts || 0;
         if (document.getElementById('git-commits')) document.getElementById('git-commits').innerText = data.git?.commits || 0;
+        
+        // Update Budget
+        if (document.getElementById('daily-spend')) document.getElementById('daily-spend').innerText = (data.daily_spend || 0).toFixed(4);
+        if (document.getElementById('daily-budget')) document.getElementById('daily-budget').innerText = (data.daily_budget || 0).toFixed(2);
         
         // Add binding for pre-flight failures
         if (document.getElementById('preflight-failures')) {
@@ -262,6 +272,17 @@ async function updateLLMLogs() {
             const summary = document.createElement('summary');
             summary.className = 'llm-call-header';
             summary.innerHTML = `<span>Trace: ${call.timestamp}</span> <span style="color: #666; font-size: 0.8rem;">${call.model}</span>`;
+            
+            const copyBtn = document.createElement('button');
+            copyBtn.innerText = 'Copy Trace';
+            copyBtn.className = 'copy-btn';
+            copyBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                copyTrace(call);
+            };
+            summary.appendChild(copyBtn);
+            
             traceDetails.appendChild(summary);
 
             const body = document.createElement('div');
@@ -328,6 +349,164 @@ async function updateLLMLogs() {
     } catch (err) {
         console.error("Error updating LLM logs:", err);
     }
+}
+
+async function updateTimeline() {
+    console.log("Updating hierarchical timeline...");
+    try {
+        const response = await fetch('/api/historical_tasks');
+        const tasks = await response.json();
+        const container = document.getElementById('timeline-list');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        // Group tasks by parent_task_id
+        const taskMap = {};
+        const roots = [];
+        
+        tasks.forEach(task => {
+            task.children = [];
+            taskMap[task.task_id] = task;
+        });
+        
+        tasks.forEach(task => {
+            if (task.parent_task_id && taskMap[task.parent_task_id]) {
+                taskMap[task.parent_task_id].children.push(task);
+            } else {
+                roots.push(task);
+            }
+        });
+
+        // Ensure global_trunk is always a root if it exists
+        const trunkIdx = roots.findIndex(t => t.task_id === 'global_trunk');
+        if (trunkIdx > -1) {
+            const trunk = roots.splice(trunkIdx, 1)[0];
+            roots.unshift(trunk);
+        }
+
+        const renderTask = (task, level = 0) => {
+            const div = document.createElement('div');
+            div.className = 'timeline-item';
+            div.style.marginLeft = `${level * 20}px`;
+            if (level > 0) div.style.borderLeft = '1px solid #444';
+            
+            div.onclick = (e) => {
+                e.stopPropagation();
+                loadTaskLog(task.task_id);
+            };
+            
+            const isTrunk = task.task_id === 'global_trunk';
+            const icon = isTrunk ? '🧠' : '🌿';
+            
+            div.innerHTML = `
+                <div class="timeline-header">
+                    <span class="timeline-id">${icon} ${escapeHtml(task.task_id)}</span>
+                    <span class="timeline-date">${escapeHtml(task.timestamp)}</span>
+                </div>
+                <div class="timeline-summary">${escapeHtml(task.summary)}</div>
+            `;
+            container.appendChild(div);
+            
+            // Sort children by time ascending
+            task.children.sort((a, b) => a.mtime - b.mtime);
+            task.children.forEach(child => renderTask(child, level + 1));
+        };
+
+        roots.forEach(root => renderTask(root));
+        
+    } catch (err) {
+        console.error("Error updating timeline:", err);
+    }
+}
+
+async function loadTaskLog(taskId) {
+    console.log(`Loading task log: ${taskId}`);
+    try {
+        const titleElem = document.getElementById('timeline-task-title');
+        if (titleElem) titleElem.innerText = `Task Log: ${taskId}`;
+        
+        const logContainer = document.getElementById('timeline-task-log');
+        const contextContainer = document.getElementById('trunk-context-container');
+        const toggleBtn = document.getElementById('toggle-trunk-context');
+        
+        if (!logContainer) return;
+        
+        // Handle visibility for Trunk
+        if (taskId === 'global_trunk') {
+            toggleBtn.style.display = 'block';
+            toggleBtn.innerText = 'View Mental State';
+            logContainer.style.display = 'block';
+            contextContainer.style.display = 'none';
+        } else {
+            toggleBtn.style.display = 'none';
+            logContainer.style.display = 'block';
+            contextContainer.style.display = 'none';
+        }
+
+        logContainer.innerHTML = 'Loading log...';
+        
+        const response = await fetch(`/api/task_log/${taskId}`);
+        const logs = await response.json();
+        
+        logContainer.innerHTML = '';
+        logs.forEach(entry => {
+            const div = document.createElement('div');
+            const roleClass = (entry.role || 'system').toLowerCase();
+            div.className = `log-entry role-${roleClass}`;
+            const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
+            div.innerHTML = `<span class="role-label">${(entry.role || 'SYSTEM').toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
+            logContainer.appendChild(div);
+        });
+        logContainer.scrollTop = 0;
+    } catch (err) {
+        console.error("Error loading task log:", err);
+    }
+}
+
+function toggleMentalState() {
+    const logContainer = document.getElementById('timeline-task-log');
+    const contextContainer = document.getElementById('trunk-context-container');
+    const toggleBtn = document.getElementById('toggle-trunk-context');
+    
+    if (logContainer.style.display === 'none') {
+        logContainer.style.display = 'block';
+        contextContainer.style.display = 'none';
+        toggleBtn.innerText = 'View Mental State';
+    } else {
+        logContainer.style.display = 'none';
+        contextContainer.style.display = 'block';
+        toggleBtn.innerText = 'View Raw Log';
+        updateTrunkContext();
+    }
+}
+
+async function updateTrunkContext() {
+    const container = document.getElementById('trunk-context-container');
+    if (!container) return;
+    container.innerHTML = 'Rendering mental state...';
+    
+    try {
+        const response = await fetch('/api/trunk_context');
+        const data = await response.json();
+        
+        let raw = escapeHtml(data.raw);
+        raw = raw.replace(/^(# .*)$/gm, '<span class="context-h1">$1</span>');
+        raw = raw.replace(/^(## .*)$/gm, '<span class="context-h2">$1</span>');
+        raw = raw.replace(/^(=== .* ===)$/gm, '<span class="context-h3">$1</span>');
+        
+        container.innerHTML = raw;
+    } catch (err) {
+        console.error("Error updating trunk context:", err);
+    }
+}
+
+function copyTrace(call) {
+    const text = JSON.stringify(call, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Trace copied to clipboard!');
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+    });
 }
 
 async function updateHistory() {
