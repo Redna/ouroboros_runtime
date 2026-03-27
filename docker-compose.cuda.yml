@@ -33,5 +33,16 @@ services:
       - --cache-type-v
       - q8_0
       - --no-mmap
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     networks:
       - ouroboros_net
+
+  gate:
+    depends_on:
+      llamacpp:
+        condition: service_healthy

@@ -45,5 +45,16 @@ services:
       - "1024"            
       - -np
       - "1"  
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     networks:
       - ouroboros_net
+
+  gate:
+    depends_on:
+      llamacpp:
+        condition: service_healthy
