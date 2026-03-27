@@ -15,6 +15,10 @@ heimdall_data/
 nginx_letsencrypt/
 ouroboros_data/
 
+# LLM call logs (runtime, not tracked)
+llm_logs/*
+!llm_logs/.gitkeep
+
 # Databases
 *.sqlite
 *.sqlite3

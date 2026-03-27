@@ -32,9 +32,11 @@ services:
       - "4000:4000"
     volumes:
       - ../ouroboros_memory:/memory:rw
+      - ./llm_logs:/runtime_logs:rw
     environment:
       - TOGETHERAI_API_KEY=${TOGETHERAI_API_KEY:-}
       - MEMORY_DIR=/memory
+      - RUNTIME_LOG_DIR=/runtime_logs
       - DAILY_BUDGET_LIMIT=${DAILY_BUDGET_LIMIT:-5.00}
       - OUROBOROS_CONTEXT_WINDOW=${OUROBOROS_CONTEXT_WINDOW:-65536}
     networks:
@@ -74,6 +76,9 @@ services:
       - ./dashboard:/app
       - ../ouroboros_memory:/memory:ro
       - ../ouroboros:/agent_soul:ro
+      - ./llm_logs:/runtime_logs:ro
+    environment:
+      - RUNTIME_LOG_DIR=/runtime_logs
     networks:
       - ouroboros_net
     depends_on:
