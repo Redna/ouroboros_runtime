@@ -113,8 +113,13 @@ def trigger_lazarus_reset(reason="Startup failure"):
         f.write(f"\n\n--- PHOENIX RECOVERY ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
         f.write(f"Reason: {reason}\n")
 
+daemon_process = None
+
 def cleanup(signum, frame):
+    global daemon_process
     print("\n\033[93m[DAEMON] Shutdown signal received. Cleaning up stack...\033[0m", flush=True)
+    if daemon_process:
+        daemon_process.terminate()
     compose_args = get_compose_args()
     subprocess.run(f"docker compose {compose_args} down", shell=True, cwd=RUNTIME_DIR)
     if PID_FILE.exists():
@@ -130,6 +135,7 @@ def run_daemon():
     failure_count = 0
     compose_args = get_compose_args()
     
+    global daemon_process
     while True:
         start_time = time.time()
         print(f"\n[DAEMON] Starting Stack (Attempt {failure_count + 1})...", flush=True)
@@ -139,6 +145,7 @@ def run_daemon():
         # We use Popen instead of run_cmd to allow background monitoring of the heartrate
         cmd = f"docker compose {compose_args} up --build --abort-on-container-exit"
         process = subprocess.Popen(cmd, shell=True, cwd=RUNTIME_DIR)
+        daemon_process = process
         
         exit_code = None
         stalled = False
@@ -229,7 +236,7 @@ def stop():
             os.kill(pid, signal.SIGTERM)
             
             # Wait for the process to exit
-            timeout = 30
+            timeout = 60
             start_wait = time.time()
             while is_running(pid) and (time.time() - start_wait < timeout):
                 time.sleep(0.5)
