@@ -15,8 +15,8 @@
     <nav class="tabs">
         <button class="tab-btn active" onclick="showSection('overview')">Overview</button>
         <button class="tab-btn" onclick="showSection('identity')">Identity</button>
-        <button class="tab-btn" onclick="showSection('insights')">Insights</button>
-        <button class="tab-btn" onclick="showSection('bio')">Bio</button>
+        <button class="tab-btn" onclick="showSection('insights')">Memory</button>
+        <button class="tab-btn" onclick="showSection('bio')">Archive</button>
         <button class="tab-btn" onclick="showSection('state')">State</button>
         <button class="tab-btn" onclick="showSection('history')">History</button>
         <button class="tab-btn" onclick="showSection('timeline')">Timeline</button>
@@ -24,8 +24,9 @@
     </nav>
 
     <main>
-        <!-- Overview Section -->
-        <div id="section-overview" class="tab-content active">
+        <div id="sections-wrapper">
+            <!-- Overview Section -->
+            <div id="section-overview" class="tab-content active">
             <section id="metrics" class="card-container">
                 <div class="card">
                     <h3>Context Size</h3>
@@ -66,6 +67,16 @@
                     <h3>Restarts</h3>
                     <p id="restart-count">0</p>
                     <small>System Reboots</small>
+                </div>
+                <div class="card">
+                    <h3>CPU</h3>
+                    <p><span id="sys-cpu">0</span>%</p>
+                    <div class="progress-bar-container" style="height: 4px; margin-top: 5px;"><div id="cpu-bar" class="progress-bar" style="width: 0%"></div></div>
+                </div>
+                <div class="card">
+                    <h3>Memory</h3>
+                    <p><span id="sys-mem">0</span>%</p>
+                    <div class="progress-bar-container" style="height: 4px; margin-top: 5px;"><div id="mem-bar" class="progress-bar" style="width: 0%"></div></div>
                 </div>
                 <div class="card">
                     <h3>Test Failures</h3>
@@ -111,7 +122,7 @@
         <!-- Insights Section -->
         <div id="section-insights" class="tab-content">
             <section class="card single-card">
-                <h2>Evolutionary Insights</h2>
+                <h2>Memory Store (Index)</h2>
                 <div id="insights-container" class="insights-box">
                     Discovering reflections...
                 </div>
@@ -121,7 +132,7 @@
         <!-- Bio Section -->
         <div id="section-bio" class="tab-content">
             <section class="card single-card">
-                <h2>Global Biography</h2>
+                <h2>Task Archive (Biography)</h2>
                 <div id="bio-container" class="insights-box">
                     Reading history...
                 </div>

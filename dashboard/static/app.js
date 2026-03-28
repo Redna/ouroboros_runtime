@@ -1,19 +1,19 @@
 let lastStartTime = 0;
+let currentStreamTaskId = null;
+let logEventSource = null;
 
 function showSection(sectionId) {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-        // Extract section from onclick attribute or data-section if we had one
-        // For now, let's just match against a lowercase version of the text as a fallback,
-        // but prefer an explicit mapping if the button corresponds to the sectionId.
-        if (btn.getAttribute('onclick').includes(`'${sectionId}'`)) {
-            btn.classList.add('active');
-        }
-    });
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    document.getElementById(`section-${sectionId}`).classList.add('active');
+    const wrapper = document.getElementById('sections-wrapper');
+    const target = document.getElementById(`section-${sectionId}`);
+    
+    if (wrapper && target) {
+        wrapper.scrollTo({
+            left: target.offsetLeft,
+            behavior: 'smooth'
+        });
+    }
+
+    // Trigger data updates
     if (sectionId === 'identity') updateIdentity();
     if (sectionId === 'insights') updateInsights();
     if (sectionId === 'bio') updateBiography();
@@ -21,6 +21,46 @@ function showSection(sectionId) {
     if (sectionId === 'history') updateHistory();
     if (sectionId === 'timeline') updateTimeline();
     if (sectionId === 'llm') updateLLMLogs();
+}
+
+function initIntersectionObserver() {
+    const wrapper = document.getElementById('sections-wrapper');
+    const sections = document.querySelectorAll('.tab-content');
+    const buttons = document.querySelectorAll('.tab-btn');
+
+    const observerOptions = {
+        root: wrapper,
+        threshold: 0.5
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const sectionId = entry.target.id.replace('section-', '');
+                
+                // Update active tab button
+                buttons.forEach(btn => {
+                    btn.classList.remove('active');
+                    if (btn.getAttribute('onclick').includes(`'${sectionId}'`)) {
+                        btn.classList.add('active');
+                        // Ensure the tab button is visible in the scrollable tab bar
+                        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                    }
+                });
+
+                // Load data for the visible section
+                if (sectionId === 'identity') updateIdentity();
+                if (sectionId === 'insights') updateInsights();
+                if (sectionId === 'bio') updateBiography();
+                if (sectionId === 'state') updateFullState();
+                if (sectionId === 'history') updateHistory();
+                if (sectionId === 'timeline') updateTimeline();
+                if (sectionId === 'llm') updateLLMLogs();
+            }
+        });
+    }, observerOptions);
+
+    sections.forEach(section => observer.observe(section));
 }
 
 async function updateStatus() {
@@ -34,6 +74,14 @@ async function updateStatus() {
         if (document.getElementById('restart-count')) document.getElementById('restart-count').innerText = data.restarts || 0;
         if (document.getElementById('git-commits')) document.getElementById('git-commits').innerText = data.git?.commits || 0;
         
+        // Update System Stats
+        if (data.sys_stats) {
+            if (document.getElementById('sys-cpu')) document.getElementById('sys-cpu').innerText = data.sys_stats.cpu.toFixed(1);
+            if (document.getElementById('cpu-bar')) document.getElementById('cpu-bar').style.width = data.sys_stats.cpu + '%';
+            if (document.getElementById('sys-mem')) document.getElementById('sys-mem').innerText = data.sys_stats.memory.toFixed(1);
+            if (document.getElementById('mem-bar')) document.getElementById('mem-bar').style.width = data.sys_stats.memory + '%';
+        }
+
         // Update Budget
         if (document.getElementById('daily-spend')) document.getElementById('daily-spend').innerText = (data.daily_spend || 0).toFixed(4);
         if (document.getElementById('daily-budget')) document.getElementById('daily-budget').innerText = (data.daily_budget || 0).toFixed(2);
@@ -43,7 +91,8 @@ async function updateStatus() {
             document.getElementById('preflight-failures').innerText = data.preflight_failures || 0;
         }
 
-        if (document.getElementById('context-size')) document.getElementById('context-size').innerText = (data.last_context_size || 0).toLocaleString();        if (document.getElementById('input-tokens')) document.getElementById('input-tokens').innerText = data.last_input_tokens || 0;
+        if (document.getElementById('context-size')) document.getElementById('context-size').innerText = (data.last_context_size || 0).toLocaleString();
+        if (document.getElementById('input-tokens')) document.getElementById('input-tokens').innerText = data.last_input_tokens || 0;
         if (document.getElementById('output-tokens')) document.getElementById('output-tokens').innerText = data.last_output_tokens || 0;
         
         lastStartTime = data.last_start_time;
@@ -57,8 +106,10 @@ async function updateStatus() {
         const contextBadge = document.getElementById('context-badge');
         const taskDesc = document.getElementById('task-description');
 
+        let activeTaskId = 'global_trunk';
         if (data.active_branch) {
-            contextBadge.innerText = 'BRANCH: ' + data.active_branch.task_id;
+            activeTaskId = data.active_branch.task_id;
+            contextBadge.innerText = 'BRANCH: ' + activeTaskId;
             contextBadge.className = 'status-badge context-branch';
             taskDesc.innerText = 'OBJECTIVE: ' + data.active_branch.objective;
         } else {
@@ -66,12 +117,68 @@ async function updateStatus() {
             contextBadge.className = 'status-badge context-trunk';
             // We'll let updateTasks() handle the description if we are in the Trunk
         }
+
+        // Manage Log Stream
+        if (activeTaskId !== currentStreamTaskId) {
+            startLogStream(activeTaskId);
+        }
+
     } catch (err) {
         console.error("Status update failed:", err);
         if (document.getElementById('runtime-indicator')) {
             document.getElementById('runtime-indicator').innerText = 'Offline';
             document.getElementById('runtime-indicator').className = 'offline';
         }
+    }
+}
+
+function startLogStream(taskId) {
+    if (logEventSource) {
+        logEventSource.close();
+    }
+    
+    currentStreamTaskId = taskId;
+    console.log(`Starting log stream for: ${taskId}`);
+    
+    // First load the static history
+    updateLogs(taskId);
+    
+    logEventSource = new EventSource(`/api/stream_logs/${taskId}`);
+    
+    logEventSource.onmessage = (event) => {
+        try {
+            const entry = JSON.parse(event.data);
+            appendLogEntry(entry);
+        } catch (e) {
+            console.error("Error parsing stream data:", e);
+        }
+    };
+    
+    logEventSource.onerror = (err) => {
+        console.error("Log stream error:", err);
+        logEventSource.close();
+        // Retry after a delay
+        setTimeout(() => startLogStream(taskId), 5000);
+    };
+}
+
+function appendLogEntry(entry) {
+    const logContainer = document.getElementById('log-container');
+    if (!logContainer) return;
+    
+    const div = document.createElement('div');
+    const roleClass = (entry.role || 'system').toLowerCase();
+    div.className = `log-entry role-${roleClass}`;
+    const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
+    div.innerHTML = `<span class="role-label">${(entry.role || 'SYSTEM').toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
+    
+    logContainer.appendChild(div);
+    
+    // Auto-scroll logic
+    const threshold = 100; // px from bottom
+    const isAtBottom = logContainer.scrollHeight - logContainer.scrollTop - logContainer.clientHeight < threshold;
+    if (isAtBottom) {
+        logContainer.scrollTop = logContainer.scrollHeight;
     }
 }
 
@@ -159,18 +266,21 @@ async function updateScheduledTasks() {
     } catch (err) {}
 }
 
-async function updateLogs() {
+async function updateLogs(taskId = null) {
     try {
-        const response = await fetch('/api/logs');
+        const url = taskId ? `/api/task_log/${taskId}` : '/api/logs';
+        const response = await fetch(url);
         const logs = await response.json();
         const logContainer = document.getElementById('log-container');
+        if (!logContainer) return;
+
         logContainer.innerHTML = '';
         logs.forEach(entry => {
             const div = document.createElement('div');
-            const roleClass = entry.role.toLowerCase();
+            const roleClass = (entry.role || 'system').toLowerCase();
             div.className = `log-entry role-${roleClass}`;
             const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
-            div.innerHTML = `<span class="role-label">${entry.role.toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
+            div.innerHTML = `<span class="role-label">${(entry.role || 'SYSTEM').toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
             logContainer.appendChild(div);
         });
         logContainer.scrollTop = logContainer.scrollHeight;
@@ -351,9 +461,15 @@ async function updateLLMLogs() {
     }
 }
 
+let selectedTaskId = null;
+
 async function updateTimeline() {
     console.log("Updating hierarchical timeline...");
     try {
+        const responseStatus = await fetch('/api/status');
+        const statusData = await responseStatus.json();
+        const activeTaskId = statusData.active_branch ? statusData.active_branch.task_id : 'global_trunk';
+
         const response = await fetch('/api/historical_tasks');
         const tasks = await response.json();
         const container = document.getElementById('timeline-list');
@@ -387,20 +503,28 @@ async function updateTimeline() {
         const renderTask = (task, level = 0) => {
             const div = document.createElement('div');
             div.className = 'timeline-item';
+            if (level > 0) div.classList.add('child');
+            if (task.task_id === activeTaskId) div.classList.add('active-task');
+            if (task.task_id === selectedTaskId) div.classList.add('selected-task');
+            
             div.style.marginLeft = `${level * 20}px`;
             if (level > 0) div.style.borderLeft = '1px solid #444';
             
             div.onclick = (e) => {
                 e.stopPropagation();
+                selectedTaskId = task.task_id;
+                // Re-render to update selected-task class
+                updateTimeline();
                 loadTaskLog(task.task_id);
             };
             
             const isTrunk = task.task_id === 'global_trunk';
             const icon = isTrunk ? '🧠' : '🌿';
+            const status = task.task_id === activeTaskId ? '<span class="online" style="font-size: 0.7rem; margin-left: 8px;">ACTIVE</span>' : '';
             
             div.innerHTML = `
                 <div class="timeline-header">
-                    <span class="timeline-id">${icon} ${escapeHtml(task.task_id)}</span>
+                    <span class="timeline-id">${icon} ${escapeHtml(task.task_id)}${status}</span>
                     <span class="timeline-date">${escapeHtml(task.timestamp)}</span>
                 </div>
                 <div class="timeline-summary">${escapeHtml(task.summary)}</div>
@@ -545,12 +669,16 @@ function init() {
     updateStatus();
     updateTasks();
     updateScheduledTasks();
-    updateLogs();
+    initIntersectionObserver();
 
     setInterval(updateStatus, 5000);
     setInterval(updateTasks, 5000);
     setInterval(updateScheduledTasks, 5000);
-    setInterval(updateLogs, 5000);
+    setInterval(() => {
+        if (document.getElementById('section-timeline').classList.contains('active')) {
+            updateTimeline();
+        }
+    }, 10000);
     setInterval(updateUptime, 1000);
 }
 document.addEventListener('DOMContentLoaded', init);

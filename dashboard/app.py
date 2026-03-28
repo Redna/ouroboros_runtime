@@ -4,10 +4,12 @@ import json
 import subprocess
 import time
 import markdown
+import psutil
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pathlib import Path
+import asyncio
 
 app = FastAPI()
 
@@ -47,6 +49,24 @@ def get_git_stats():
     except Exception as e:
         return {"commits": "N/A", "changes": "N/A", "error": str(e)}
 
+def get_system_stats():
+    try:
+        cpu_percent = psutil.cpu_percent(interval=None)
+        memory = psutil.virtual_memory()
+        memory_percent = memory.percent
+        
+        # Disk usage of /memory
+        disk = psutil.disk_usage(str(MEMORY_DIR))
+        disk_percent = disk.percent
+        
+        return {
+            "cpu": cpu_percent,
+            "memory": memory_percent,
+            "disk": disk_percent
+        }
+    except Exception:
+        return {"cpu": 0, "memory": 0, "disk": 0}
+
 @app.get("/api/status")
 async def get_status():
     status_file = MEMORY_DIR / ".agent_state.json"
@@ -63,9 +83,11 @@ async def get_status():
             stats = json.load(f)
             data["restarts"] = stats.get("restart_count", 0)
             data["last_start_time"] = stats.get("last_start_time", 0)
+            data["preflight_failures"] = stats.get("preflight_failures", 0)
     else:
         data["restarts"] = 0
         data["last_start_time"] = 0
+        data["preflight_failures"] = 0
     
     # Get daily spend
     today = time.strftime("%Y-%m-%d")
@@ -83,6 +105,9 @@ async def get_status():
         
     git_data = get_git_stats()
     data["git"] = git_data
+    
+    # Add system stats
+    data["sys_stats"] = get_system_stats()
     
     return data
 
@@ -117,27 +142,28 @@ async def get_history():
 
 @app.get("/api/insights")
 async def get_insights():
-    insights_file = MEMORY_DIR / "insights.md"
-    if not insights_file.exists():
+    memory_file = MEMORY_DIR / "agent_memory.json"
+    if not memory_file.exists():
         return []
     
-    content = insights_file.read_text()
-    import re
-    # Pattern: ### [Timestamp] Title \n Body
-    pattern = r'### \[(.*?)\] (.*)\n([\s\S]*?)(?=\n### \[|$)'
-    matches = re.findall(pattern, content)
-    
-    insights = []
-    for timestamp, title, body in matches:
-        insights.append({
-            "timestamp": timestamp,
-            "title": title,
-            "content": body.strip()
-        })
-    
-    if not insights:
-        return [{"timestamp": "N/A", "title": "Empty", "content": "No insights found in insights.md"}]
-    return insights[::-1]
+    try:
+        data = json.loads(memory_file.read_text())
+        entries = data.get("entries", {})
+        last_synthesis = data.get("last_synthesis", "N/A")
+        
+        insights = []
+        for key, value in entries.items():
+            insights.append({
+                "timestamp": last_synthesis,
+                "title": key,
+                "content": value
+            })
+        
+        if not insights:
+            return [{"timestamp": "N/A", "title": "Empty Store", "content": "No memories stored in agent_memory.json"}]
+        return insights[::-1] # Show latest entries first
+    except Exception as e:
+        return [{"timestamp": "Error", "title": "Failed to load", "content": str(e)}]
 
 @app.get("/api/llm_logs")
 async def get_llm_logs():
@@ -157,31 +183,25 @@ async def get_llm_logs():
 
 @app.get("/api/biography")
 async def get_biography():
-    bio_file = MEMORY_DIR / "global_biography.md"
-    if not bio_file.exists():
+    archive_file = MEMORY_DIR / "task_archive.jsonl"
+    if not archive_file.exists():
         return []
     
-    content = bio_file.read_text()
-    import re
-    # Pattern: [Timestamp] Event \n
-    pattern = r'\[(.*?)\] (.*)'
-    matches = re.findall(pattern, content)
-    
     bio = []
-    for timestamp, text in matches:
-        if " Completed: " in text:
-            event, details = text.split(" Completed: ", 1)
-            event += " Completed"
-        else:
-            event = text
-            details = ""
-            
-        bio.append({
-            "timestamp": timestamp,
-            "event": event,
-            "details": details
-        })
-    return bio[::-1]
+    try:
+        with open(archive_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip(): continue
+                data = json.loads(line)
+                bio.append({
+                    "timestamp": data.get("timestamp", "N/A"),
+                    "event": f"Task {data.get('task_id', 'Unknown')} Complete",
+                    "details": data.get("summary", "No details")
+                })
+    except:
+        pass
+        
+    return bio[::-1] # Latest first
 
 @app.get("/api/state")
 async def get_full_state():
@@ -262,7 +282,7 @@ async def get_specific_task_log(task_id: str):
 async def get_trunk_context():
     # Replicate seed_agent.py's gather_system_context logic
     identity = ""
-    identity_path = AGENT_DIR / "soul" / "identity.md"
+    identity_path = AGENT_DIR / "identity.md"
     if identity_path.exists():
         identity = identity_path.read_text(encoding="utf-8")
 
@@ -276,11 +296,28 @@ async def get_trunk_context():
     if ws_path.exists():
         working_state = ws_path.read_text(encoding="utf-8")
 
-    recent_bio = ""
-    bio_path = MEMORY_DIR / "global_biography.md"
-    if bio_path.exists():
-        bio_lines = bio_path.read_text(encoding="utf-8").strip().split('\n')
-        recent_bio = "\n".join(bio_lines[-5:]) if len(bio_lines) >= 5 else "\n".join(bio_lines)
+    # Memory Index
+    memory_index = "Empty Memory Store. Use `store_memory` to record insights."
+    memory_file = MEMORY_DIR / "agent_memory.json"
+    if memory_file.exists():
+        try:
+            mem_data = json.loads(memory_file.read_text())
+            keys = list(mem_data.get("entries", {}).keys())
+            if keys:
+                memory_index = "\n".join([f"- {k}" for k in keys])
+        except: pass
+
+    # Task Archive Snippet
+    recent_bio = "No archived history."
+    archive_path = MEMORY_DIR / "task_archive.jsonl"
+    if archive_path.exists():
+        try:
+            with open(archive_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                recent_lines = lines[-5:] if len(lines) >= 5 else lines
+                recs = [json.loads(l) for l in recent_lines if l.strip()]
+                recent_bio = "\n".join([f"[{r.get('timestamp')}] Task {r.get('task_id')}: {r.get('summary')}" for r in recs])
+        except: pass
 
     chat_hist = []
     chat_path = MEMORY_DIR / "chat_history.json"
@@ -316,10 +353,10 @@ async def get_trunk_context():
 {formatted_queue}
 
 ## MEMORY
-### Working Memory
-{working_state}
+### Memory Index
+{memory_index}
 
-### Recent Biography
+### Task Archive (Archive Snippet)
 {recent_bio}
 
 ### Recent Conversation
@@ -337,7 +374,7 @@ async def get_trunk_context():
 
 @app.get("/api/identity")
 async def get_identity():
-    identity_path = AGENT_DIR / "soul" / "identity.md"
+    identity_path = AGENT_DIR / "identity.md"
     constitution_path = AGENT_DIR / "CONSTITUTION.md"
     
     content = ""
@@ -384,6 +421,38 @@ async def get_logs(limit: int = 50):
     except:
         return []
     return logs
+
+@app.get("/api/stream_logs/{task_id}")
+async def stream_logs(task_id: str):
+    async def event_generator():
+        log_file = MEMORY_DIR / f"task_log_{task_id}.jsonl"
+        if not log_file.exists():
+            yield "data: " + json.dumps({"role": "system", "content": f"Log file for {task_id} not found."}) + "\n\n"
+            return
+
+        # Start from the end of the file
+        file_size = os.path.getsize(log_file)
+        
+        with open(log_file, "r", encoding="utf-8") as f:
+            # Seek to end minus a bit to catch the last few lines if needed, 
+            # or just start from the end for a clean stream.
+            f.seek(file_size)
+            
+            while True:
+                line = f.readline()
+                if not line:
+                    await asyncio.sleep(0.5) # Wait for new data
+                    continue
+                
+                try:
+                    # Validate JSON
+                    json.loads(line)
+                    yield f"data: {line}\n\n"
+                except:
+                    continue
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 # Serve static files
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
