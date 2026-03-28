@@ -50,8 +50,14 @@ def check_cognitive_heartbeat(session_start_time: float) -> bool:
     latest_log = max(log_files, key=os.path.getmtime)
     mtime = os.path.getmtime(latest_log)
     
-    # FIX: Ignore logs that haven't been modified during this session yet
+    # If the log was modified BEFORE the session started, it means the agent
+    # has not yet written its first thought this session.
     if mtime < session_start_time:
+        uptime = time.time() - session_start_time
+        # If we've been up for > 120s and still haven't written a thought, it's a Zombie Startup.
+        if uptime > 120:
+            print(f"\033[91m[DAEMON] Zombie Startup detected! No first thought written after {uptime:.1f}s.\033[0m")
+            return False
         return True
 
     time_since_last_thought = time.time() - mtime
