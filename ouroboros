@@ -119,6 +119,28 @@ def trigger_lazarus_reset(reason="Startup failure"):
         f.write(f"\n\n--- PHOENIX RECOVERY ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
         f.write(f"Reason: {reason}\n")
 
+def wait_for_gate_healthy(compose_args, timeout=600):
+    """Wait for the gate service to report healthy status."""
+    print("\033[94m[DAEMON] Waiting for LLM Gate to be healthy...\033[0m", flush=True)
+    start_wait = time.time()
+    while time.time() - start_wait < timeout:
+        # Check if gate container is running and healthy
+        res = run_cmd("docker inspect --format='{{.State.Health.Status}}' ouroboros_gate", capture=True, check=False)
+        status = res.stdout.strip() if (isinstance(res, subprocess.CompletedProcess) and res.stdout) else "unknown"
+        
+        if status == "healthy":
+            print("\033[92m[DAEMON] LLM Gate is healthy. Readiness confirmed.\033[0m", flush=True)
+            return True
+        
+        if status == "unhealthy":
+            print("\033[91m[DAEMON] LLM Gate reported UNHEALTHY. Forcing restart of gate...\033[0m", flush=True)
+            run_cmd(f"docker compose {compose_args} restart gate", check=False)
+            
+        time.sleep(10)
+        
+    print("\033[91m[DAEMON] Timeout waiting for LLM Gate readiness.\033[0m", flush=True)
+    return False
+
 daemon_process = None
 
 def cleanup(signum, frame):
@@ -138,18 +160,29 @@ def run_daemon():
     signal.signal(signal.SIGTERM, cleanup)
     
     print("\033[94m[DAEMON] Ouroboros Supervisor Initialized.\033[0m", flush=True)
-    failure_count = 0
     compose_args = get_compose_args()
     
+    # 1. Start Infrastructure (Detached)
+    print("\033[94m[DAEMON] Starting service infrastructure...\033[0m", flush=True)
+    run_cmd(f"docker compose {compose_args} up -d searxng gate redis dashboard", check=True)
+    
+    failure_count = 0
     global daemon_process
+    
     while True:
+        # 2. Wait for LLM readiness before starting agent
+        if not wait_for_gate_healthy(compose_args):
+            print("\033[91m[DAEMON] Infrastructure not ready. Retrying in 30s...\033[0m", flush=True)
+            time.sleep(30)
+            continue
+
         start_time = time.time()
-        print(f"\n[DAEMON] Starting Stack (Attempt {failure_count + 1})...", flush=True)
+        print(f"\n[DAEMON] Starting Ouroboros Agent (Attempt {failure_count + 1})...", flush=True)
         
         run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
         
-        # We use Popen instead of run_cmd to allow background monitoring of the heartrate
-        cmd = f"docker compose {compose_args} up --build --abort-on-container-exit"
+        # 3. Start ONLY the agent (following logs)
+        cmd = f"docker compose {compose_args} up --build ouroboros"
         process = subprocess.Popen(cmd, shell=True, cwd=RUNTIME_DIR)
         daemon_process = process
         
@@ -160,7 +193,7 @@ def run_daemon():
             if exit_code is not None:
                 break
             
-            # New Heartbeat Monitor
+            # Heartbeat Monitor
             uptime = time.time() - start_time
             # FIX: Only check for stalls after a grace period (build/boot time)
             if uptime > UPTIME_STABILITY_THRESHOLD:
@@ -168,7 +201,6 @@ def run_daemon():
                     # If the mind is frozen, stop the container to force a restart
                     print("[DAEMON] Executing targeted restart of frozen agent...")
                     subprocess.run(f"docker compose {compose_args} stop ouroboros", shell=True, cwd=RUNTIME_DIR, capture_output=True)
-                    # The --abort-on-container-exit will trigger the process to exit soon
                     stalled = True
                     break
             
@@ -176,7 +208,7 @@ def run_daemon():
             
         if stalled:
             time.sleep(5)
-            continue # Let the loop restart the container naturally
+            continue # Let the loop restart the agent naturally
             
         uptime = time.time() - start_time
         
