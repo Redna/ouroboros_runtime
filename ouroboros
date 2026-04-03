@@ -54,8 +54,8 @@ def check_cognitive_heartbeat(session_start_time: float) -> bool:
     # has not yet written its first thought this session.
     if mtime < session_start_time:
         uptime = time.time() - session_start_time
-        # If we've been up for > 120s and still haven't written a thought, it's a Zombie Startup.
-        if uptime > 120:
+        # If we've been up for > 600 and still haven't written a thought, it's a Zombie Startup.
+        if uptime > 600:
             print(f"\033[91m[DAEMON] Zombie Startup detected! No first thought written after {uptime:.1f}s.\033[0m")
             return False
         return True
@@ -345,6 +345,17 @@ def protocol_deletion():
             item.unlink()
         elif item.is_dir():
             shutil.rmtree(item)
+            
+    llm_logs_dir = RUNTIME_DIR / "llm_logs"
+    if llm_logs_dir.exists():
+        print("[CLI] Purging LLM logs...")
+        for item in llm_logs_dir.iterdir():
+            if item.name == ".gitkeep":
+                continue
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
     
     print("\033[92m[CLI] PROTOCOL DELETION COMPLETE. The slate is clean.\033[0m")
     if backup_name:

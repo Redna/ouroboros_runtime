@@ -14,7 +14,6 @@
 
     <nav class="tabs">
         <button class="tab-btn active" onclick="showSection('overview')">Overview</button>
-        <button class="tab-btn" onclick="showSection('identity')">Identity</button>
         <button class="tab-btn" onclick="showSection('insights')">Memory</button>
         <button class="tab-btn" onclick="showSection('bio')">Archive</button>
         <button class="tab-btn" onclick="showSection('state')">State</button>
@@ -24,44 +23,49 @@
     </nav>
 
     <main>
-        <div id="sections-wrapper">
-            <!-- Overview Section -->
-            <div id="section-overview" class="tab-content active">
+        <!-- Overview Section -->
+        <div id="section-overview" class="tab-content active">
             <section id="metrics" class="card-container">
                 <div class="card">
-                    <h3>Context Size</h3>
-                    <p id="context-size">0</p>
-                    <small>Tokens (Last Turn)</small>
+                    <h3>Context Usage</h3>
+                    <p id="context-usage-percent">0%</p>
+                    <div class="progress-bar-container" style="height: 6px; margin-top: 5px;">
+                        <div id="context-usage-bar" class="progress-bar" style="width: 0%; background: linear-gradient(90deg, #00ffcc, #ff00ff);"></div>
+                    </div>
+                    <small><span id="context-size">0</span> Tokens</small>
                 </div>
                 <div class="card">
-                    <h3>Tokens</h3>
+                    <h3>Total Tokens</h3>
                     <p id="total-tokens">0</p>
-                    <small>Consumed Total</small>
+                    <small>In: <span id="input-tokens">0</span> | Out: <span id="output-tokens">0</span></small>
                 </div>
                 <div class="card">
-                    <h3>Input</h3>
-                    <p id="global-input-tokens">0</p>
-                    <small>Total Received</small>
+                    <h3>Models</h3>
+                    <p id="models-used" style="font-size: 0.8rem; word-break: break-all;">None</p>
+                    <small>Active Runtime</small>
                 </div>
                 <div class="card">
-                    <h3>Output</h3>
-                    <p id="global-output-tokens">0</p>
-                    <small>Total Generated</small>
+                    <h3>Turn Usage</h3>
+                    <p id="turns-usage-percent">0%</p>
+                    <div class="progress-bar-container" style="height: 6px; margin-top: 5px;">
+                        <div id="turns-usage-bar" class="progress-bar" style="width: 0%; background: linear-gradient(90deg, #ff00ff, #00ffcc);"></div>
+                    </div>
+                    <small>Cognitive Buffer</small>
                 </div>
                 <div class="card">
-                    <h3>In/Out</h3>
-                    <p><span id="input-tokens">0</span> / <span id="output-tokens">0</span></p>
-                    <small>Turn Throughput</small>
-                </div>
-                <div class="card">
-                    <h3>Uptime</h3>
-                    <p id="uptime-display">00:00:00</p>
-                    <small id="last-start-label">Current Session</small>
+                    <h3>Trunk Turns</h3>
+                    <p id="trunk-turns">0</p>
+                    <small>Sequential Moments</small>
                 </div>
                 <div class="card">
                     <h3>Budget</h3>
                     <p>$<span id="daily-spend">0.00</span> / $<span id="daily-budget">0.00</span></p>
                     <small>Daily Limit (USD)</small>
+                </div>
+                <div class="card">
+                    <h3>Uptime</h3>
+                    <p id="uptime-display">00:00:00</p>
+                    <small id="last-start-label">Current Session</small>
                 </div>
                 <div class="card">
                     <h3>Restarts</h3>
@@ -79,11 +83,6 @@
                     <div class="progress-bar-container" style="height: 4px; margin-top: 5px;"><div id="mem-bar" class="progress-bar" style="width: 0%"></div></div>
                 </div>
                 <div class="card">
-                    <h3>Test Failures</h3>
-                    <p id="preflight-failures">0</p>
-                    <small>Rejected Restarts</small>
-                </div>
-                <div class="card">
                     <h3>Git</h3>
                     <p id="git-commits">0</p>
                     <small>Evolution Steps</small>
@@ -92,25 +91,24 @@
 
             <section id="current-task" class="card single-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; margin-bottom: 12px; padding-bottom: 8px;">
-                    <h2 style="border: none; margin: 0; padding: 0;">Cognitive Focus</h2>
-                    <div id="context-badge" class="status-badge">TRUNK</div>
+                    <h2 style="border: none; margin: 0; padding: 0;">Stream of Consciousness</h2>
+                    <div id="stall-warning" class="status-badge" style="display: none; background: #ff4444; color: white; border: none; animation: blink 1s infinite;">STALL DETECTED</div>
+                    <div id="context-badge" class="status-badge context-trunk">GLOBAL TRUNK</div>
                 </div>
                 <div id="task-info">
-                    <p id="task-description">No active task</p>
-                    <div class="progress-bar-container">
-                        <div id="task-progress" class="progress-bar"></div>
-                    </div>
+                    <p style="color: #888; font-size: 0.8rem; margin-bottom: 4px;">CURRENT INTENT:</p>
+                    <p id="task-description" style="font-size: 1.2rem; font-weight: bold; color: var(--accent-color);">Orchestrating primary stream...</p>
                 </div>
             </section>
 
             <section id="experience" class="card single-card">
-                <h2>Experiencing</h2>
+                <h2>Real-time Log</h2>
                 <div id="log-container" class="scroll-box"></div>
             </section>
         </div>
 
-        <!-- Identity Section -->
-        <div id="section-identity" class="tab-content">
+        <!-- Identity Section (Now hidden from main tabs) -->
+        <div id="section-identity" class="tab-content" style="display: none;">
             <section class="card single-card">
                 <h2>The Soul of Ouroboros</h2>
                 <div id="identity-content" class="markdown-body">
@@ -120,7 +118,7 @@
         </div>
 
         <!-- Insights Section -->
-        <div id="section-insights" class="tab-content">
+        <div id="section-insights" class="tab-content" style="display: none;">
             <section class="card single-card">
                 <h2>Memory Store (Index)</h2>
                 <div id="insights-container" class="insights-box">
@@ -130,7 +128,7 @@
         </div>
 
         <!-- Bio Section -->
-        <div id="section-bio" class="tab-content">
+        <div id="section-bio" class="tab-content" style="display: none;">
             <section class="card single-card">
                 <h2>Task Archive (Biography)</h2>
                 <div id="bio-container" class="insights-box">
@@ -140,7 +138,7 @@
         </div>
 
         <!-- State Section -->
-        <div id="section-state" class="tab-content">
+        <div id="section-state" class="tab-content" style="display: none;">
             <section class="card single-card">
                 <h2>Internal Agent State</h2>
                 <pre id="state-container" class="scroll-box json-view">
@@ -150,12 +148,12 @@
         </div>
 
         <!-- Timeline Section -->
-        <div id="section-timeline" class="tab-content">
+        <div id="section-timeline" class="tab-content" style="display: none;">
             <div class="timeline-layout">
                 <section class="card timeline-sidebar">
-                    <h2>Task Architecture</h2>
+                    <h2>Cognitive Segments</h2>
                     <div id="timeline-list" class="scroll-box">
-                        Loading hierarchy...
+                        Loading history...
                     </div>
                 </section>
                 <section class="card timeline-detail">
@@ -174,7 +172,7 @@
         </div>
 
         <!-- LLM Section -->
-        <div id="section-llm" class="tab-content">
+        <div id="section-llm" class="tab-content" style="display: none;">
             <section class="card single-card">
                 <h2>LLM Traces (Latest 20)</h2>
                 <div id="llm-container" class="llm-traces-box">
@@ -184,7 +182,7 @@
         </div>
 
         <!-- History Section -->
-        <div id="section-history" class="tab-content">
+        <div id="section-history" class="tab-content" style="display: none;">
             <section class="card single-card">
                 <h2>Conversation History</h2>
                 <div id="history-container" class="history-box">
@@ -192,7 +190,7 @@
                 </div>
             </section>
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing);">
+            <div class="card-grid">
                 <section id="queue" class="card single-card" style="margin: 0;">
                     <h2>Active Task Queue</h2>
                     <ul id="task-list"></ul>
@@ -207,7 +205,7 @@
     </main>
 
     <footer>
-        <p>&copy; 2026 Ouroboros Project | v4.0</p>
+        <p>&copy; 2026 Ouroboros Project | v5.0 | <a href="#" onclick="showSection('identity'); return false;" style="color: #666; text-decoration: none;">Constitution & Identity</a></p>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

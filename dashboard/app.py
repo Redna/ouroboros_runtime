@@ -72,12 +72,33 @@ async def get_status():
     status_file = MEMORY_DIR / ".agent_state.json"
     stats_file = MEMORY_DIR / ".runtime_stats.json"
     ledger_file = MEMORY_DIR / "financial_ledger.json"
+    log_file = MEMORY_DIR / "task_log_singular_stream.jsonl"
     
     data = {}
     if status_file.exists():
         with open(status_file, "r") as f:
             data = json.load(f)
     
+    # Ensure V5 monitoring fields are present
+    if "last_context_size" not in data:
+        data["last_context_size"] = 0
+    if "last_input_tokens" not in data:
+        data["last_input_tokens"] = 0
+    if "last_output_tokens" not in data:
+        data["last_output_tokens"] = 0
+    
+    # Deprecate active_branch as per V5
+    data["active_branch"] = None
+    
+    # Add trunk_turns count
+    data["trunk_turns"] = 0
+    if log_file.exists():
+        try:
+            # Count non-empty lines efficiently
+            with open(log_file, "rb") as f:
+                data["trunk_turns"] = sum(1 for line in f if line.strip())
+        except: pass
+
     if stats_file.exists():
         with open(stats_file, "r") as f:
             stats = json.load(f)
@@ -99,8 +120,6 @@ async def get_status():
                 data["daily_spend"] = ledger.get(today, 0.0)
         except: pass
     
-    # We can't easily get constants.DAILY_BUDGET_LIMIT here without env or import
-    # but we can try to read it from env
     data["daily_budget"] = float(os.getenv("DAILY_BUDGET_LIMIT", "5.00"))
         
     git_data = get_git_stats()
@@ -165,6 +184,70 @@ async def get_insights():
     except Exception as e:
         return [{"timestamp": "Error", "title": "Failed to load", "content": str(e)}]
 
+_token_cache = {
+    "last_check": 0,
+    "file_count": 0,
+    "stats": None
+}
+
+@app.get("/api/token_stats")
+async def get_token_stats():
+    global _token_cache
+    log_files = glob.glob(str(RUNTIME_LOG_DIR / "call-*.json"))
+    
+    current_count = len(log_files)
+    current_time = time.time()
+    
+    # Only recalculate if files were added or every 60 seconds
+    if _token_cache["stats"] and current_count == _token_cache["file_count"] and (current_time - _token_cache["last_check"]) < 60:
+        return _token_cache["stats"]
+        
+    total_input = 0
+    total_output = 0
+    total_tokens = 0
+    total_cost = 0.0
+    models_used = set()
+    
+    for file_path in log_files:
+        try:
+            with open(file_path, "r") as f:
+                data = json.load(f)
+                
+                # Usage might be at the root or inside 'response'
+                usage = data.get("usage", {})
+                if not usage and "response" in data and isinstance(data["response"], dict):
+                    usage = data["response"].get("usage", {})
+                    
+                total_input += usage.get("prompt_tokens", 0)
+                total_output += usage.get("completion_tokens", 0)
+                total_tokens += usage.get("total_tokens", 0)
+                
+                cost = data.get("cost", 0.0)
+                if cost:
+                    total_cost += float(cost)
+                
+                model = data.get("model")
+                if model:
+                    models_used.add(model)
+        except:
+            continue
+            
+    stats = {
+        "input_tokens": total_input,
+        "output_tokens": total_output,
+        "total_tokens": total_tokens,
+        "cost": total_cost,
+        "models": list(models_used)
+    }
+    
+    _token_cache = {
+        "last_check": current_time,
+        "file_count": current_count,
+        "stats": stats
+    }
+    
+    return stats
+
 @app.get("/api/llm_logs")
 async def get_llm_logs():
     log_files = glob.glob(str(RUNTIME_LOG_DIR / "call-*.json"))
@@ -213,6 +296,7 @@ async def get_full_state():
 
 @app.get("/api/historical_tasks")
 async def get_historical_tasks():
+    # In V5, we focus on the global trunk, but historical fragments might exist
     log_files = glob.glob(str(MEMORY_DIR / "task_log_*.jsonl"))
     tasks = []
     for f_path in log_files:
@@ -223,34 +307,31 @@ async def get_historical_tasks():
         mtime = os.path.getmtime(f_path)
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
         
-        # Try to find a summary and parent_task_id in the log
-        summary = "No summary available."
-        parent_id = None
-        if task_id != "global_trunk":
-            parent_id = "global_trunk" # Default for forked tasks
+        # Try to find a summary in the log
+        summary = "Cognitive Stream Segment"
+        if task_id == "global_trunk":
+            summary = "Primary Stream of Consciousness"
             
         try:
             with open(f_path, "r", encoding="utf-8") as lf:
+                # Seek to near end to find last assistant message
+                lf.seek(0, 2)
+                f_size = lf.tell()
+                lf.seek(max(0, f_size - 4096))
                 lines = lf.readlines()
-                # Check first line for metadata
-                if lines:
-                    first_data = json.loads(lines[0])
-                    if first_data.get("parent_task_id"):
-                        parent_id = first_data["parent_task_id"]
-                    elif first_data.get("task_id") == "exploration_001":
-                        parent_id = "global_trunk"
-
                 for line in reversed(lines):
-                    data = json.loads(line)
-                    if data.get("role") == "assistant" and data.get("content"):
-                        summary = data["content"][:200] + "..." if len(data["content"]) > 200 else data["content"]
-                        break
+                    try:
+                        data = json.loads(line)
+                        if data.get("role") == "assistant" and data.get("content"):
+                            summary = data["content"][:200] + "..." if len(data["content"]) > 200 else data["content"]
+                            break
+                    except: continue
         except:
             pass
             
         tasks.append({
             "task_id": task_id,
-            "parent_task_id": parent_id,
+            "parent_task_id": None, # V5 is linear
             "timestamp": timestamp,
             "mtime": mtime,
             "summary": summary
@@ -280,7 +361,7 @@ async def get_specific_task_log(task_id: str):
 
 @app.get("/api/trunk_context")
 async def get_trunk_context():
-    # Replicate seed_agent.py's gather_system_context logic
+    # ... existing implementation ... (shortened for brevity in replace call, but I'll keep it correct)
     identity = ""
     identity_path = AGENT_DIR / "identity.md"
     if identity_path.exists():
@@ -291,13 +372,8 @@ async def get_trunk_context():
     if constitution_path.exists():
         constitution = constitution_path.read_text(encoding="utf-8")
 
-    working_state = ""
-    ws_path = MEMORY_DIR / "working_state.json"
-    if ws_path.exists():
-        working_state = ws_path.read_text(encoding="utf-8")
-
     # Memory Index
-    memory_index = "Empty Memory Store. Use `store_memory` to record insights."
+    memory_index = "Empty Memory Store."
     memory_file = MEMORY_DIR / "agent_memory.json"
     if memory_file.exists():
         try:
@@ -306,26 +382,6 @@ async def get_trunk_context():
             if keys:
                 memory_index = "\n".join([f"- {k}" for k in keys])
         except: pass
-
-    # Task Archive Snippet
-    recent_bio = "No archived history."
-    archive_path = MEMORY_DIR / "task_archive.jsonl"
-    if archive_path.exists():
-        try:
-            with open(archive_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                recent_lines = lines[-5:] if len(lines) >= 5 else lines
-                recs = [json.loads(l) for l in recent_lines if l.strip()]
-                recent_bio = "\n".join([f"[{r.get('timestamp')}] Task {r.get('task_id')}: {r.get('summary')}" for r in recs])
-        except: pass
-
-    chat_hist = []
-    chat_path = MEMORY_DIR / "chat_history.json"
-    if chat_path.exists():
-        try:
-            chat_hist = json.loads(chat_path.read_text(encoding="utf-8"))
-        except: pass
-    chat_context = "\n".join([f"[{m.get('timestamp', '??:??:??')}] {m['role']}: {m['text']}" for m in chat_hist[-10:]])
 
     queue_data = []
     queue_path = MEMORY_DIR / "task_queue.json"
@@ -337,10 +393,7 @@ async def get_trunk_context():
 
     current_time = time.strftime("%A, %Y-%m-%d %H:%M:%S %Z")
     
-    # Placeholder for tools
-    tools_text = "[Available: global, memory_access, system_control, search]"
-
-    trunk_prompt = f"""# SYSTEM CONTEXT (GLOBAL TRUNK)
+    trunk_prompt = f"""# SYSTEM CONTEXT (SINGULAR STREAM)
 {identity}
 
 ## CONSTITUTION
@@ -355,20 +408,6 @@ async def get_trunk_context():
 ## MEMORY
 ### Memory Index
 {memory_index}
-
-### Task Archive (Archive Snippet)
-{recent_bio}
-
-### Recent Conversation
-{chat_context}
-
-## AVAILABLE TOOLS
-{tools_text}
-
-=== TRUNK DIRECTIVES ===
-1. You are in the GLOBAL TRUNK. You orchestrate tasks, reflect, and communicate.
-2. Do NOT do heavy file editing here. Use `fork_execution` to spawn a branch for deep work.
-3. If the queue is empty, use `push_task` to optimize code/memory, or `hibernate`.
 """
     return {"raw": trunk_prompt}
 
@@ -391,23 +430,11 @@ async def get_identity():
 
 @app.get("/api/logs")
 async def get_logs(limit: int = 50):
-    # Determine the active cognitive context
-    state_file = MEMORY_DIR / ".agent_state.json"
-    active_task = "global_trunk"
-
-    if state_file.exists():
-        try:
-            with open(state_file, "r") as f:
-                state = json.load(f)
-                if state.get("active_branch"):
-                    active_task = state["active_branch"].get("task_id", "global_trunk")
-        except Exception:
-            pass
-
-    log_file = MEMORY_DIR / f"task_log_{active_task}.jsonl"
+    # In V5, we always use singular_stream
+    log_file = MEMORY_DIR / "task_log_singular_stream.jsonl"
 
     if not log_file.exists():
-        return [{"role": "system", "content": f"Waiting for context initialization ({active_task})..."}]
+        return [{"role": "system", "content": "Waiting for stream initialization (singular_stream)..."}]
 
     logs = []
     try:
