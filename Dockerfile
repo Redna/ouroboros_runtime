@@ -6,7 +6,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     OUROBOROS_DRIVE_ROOT=/drive \
     OUROBOROS_REPO_DIR=/app \
-    UV_PROJECT_ENVIRONMENT=/venv
+    # Store venv OUTSIDE of /app so it isn't overwritten by the docker-compose bind mount
+    UV_PROJECT_ENVIRONMENT=/venv \
+    PATH="/venv/bin:$PATH"
 
 WORKDIR /app
 
@@ -26,22 +28,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Install uv for fast package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh
 
-# Cache dependencies by copying only lockfiles first
+# 1. Cache dependencies (Layer is cached unless pyproject.toml/uv.lock changes)
 COPY ouroboros/pyproject.toml ouroboros/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project
+    uv sync --frozen --no-install-project --no-dev --no-progress
 
-# Copy the rest of the application (Agent's Body)
+# 2. Copy the actual code
 COPY ouroboros/ .
 
-# Sync again to install the project itself (fast since deps are cached)
+# 3. Final sync to install the local project (fast as deps are cached)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen
+    uv sync --frozen --no-dev --no-progress
 
-# Add the entrypoint script (from Runtime's World)
+# 4. Add the entrypoint script
 COPY ouroboros_runtime/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# The entrypoint launches the seed agent
+# The entrypoint launches the seed agent directly
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["uv", "run", "python", "seed_agent.py"]
+# Use absolute path to the persistent venv python
+CMD ["/venv/bin/python", "seed_agent.py"]

@@ -54,8 +54,8 @@ def check_cognitive_heartbeat(session_start_time: float) -> bool:
     # has not yet written its first thought this session.
     if mtime < session_start_time:
         uptime = time.time() - session_start_time
-        # If we've been up for > 120s and still haven't written a thought, it's a Zombie Startup.
-        if uptime > 120:
+        # If we've been up for > 600 and still haven't written a thought, it's a Zombie Startup.
+        if uptime > 600:
             print(f"\033[91m[DAEMON] Zombie Startup detected! No first thought written after {uptime:.1f}s.\033[0m")
             return False
         return True
@@ -119,6 +119,28 @@ def trigger_lazarus_reset(reason="Startup failure"):
         f.write(f"\n\n--- PHOENIX RECOVERY ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
         f.write(f"Reason: {reason}\n")
 
+def wait_for_gate_healthy(compose_args, timeout=600):
+    """Wait for the gate service to report healthy status."""
+    print("\033[94m[DAEMON] Waiting for LLM Gate to be healthy...\033[0m", flush=True)
+    start_wait = time.time()
+    while time.time() - start_wait < timeout:
+        # Check if gate container is running and healthy
+        res = run_cmd("docker inspect --format='{{.State.Health.Status}}' ouroboros_gate", capture=True, check=False)
+        status = res.stdout.strip() if (isinstance(res, subprocess.CompletedProcess) and res.stdout) else "unknown"
+        
+        if status == "healthy":
+            print("\033[92m[DAEMON] LLM Gate is healthy. Readiness confirmed.\033[0m", flush=True)
+            return True
+        
+        if status == "unhealthy":
+            print("\033[91m[DAEMON] LLM Gate reported UNHEALTHY. Forcing restart of gate...\033[0m", flush=True)
+            run_cmd(f"docker compose {compose_args} restart gate", check=False)
+            
+        time.sleep(10)
+        
+    print("\033[91m[DAEMON] Timeout waiting for LLM Gate readiness.\033[0m", flush=True)
+    return False
+
 daemon_process = None
 
 def cleanup(signum, frame):
@@ -138,18 +160,29 @@ def run_daemon():
     signal.signal(signal.SIGTERM, cleanup)
     
     print("\033[94m[DAEMON] Ouroboros Supervisor Initialized.\033[0m", flush=True)
-    failure_count = 0
     compose_args = get_compose_args()
     
+    # 1. Start Infrastructure (Detached)
+    print("\033[94m[DAEMON] Starting service infrastructure...\033[0m", flush=True)
+    run_cmd(f"docker compose {compose_args} up -d searxng gate redis dashboard llamacpp", check=True)
+    
+    failure_count = 0
     global daemon_process
+    
     while True:
+        # 2. Wait for LLM readiness before starting agent
+        if not wait_for_gate_healthy(compose_args):
+            print("\033[91m[DAEMON] Infrastructure not ready. Retrying in 30s...\033[0m", flush=True)
+            time.sleep(30)
+            continue
+
         start_time = time.time()
-        print(f"\n[DAEMON] Starting Stack (Attempt {failure_count + 1})...", flush=True)
+        print(f"\n[DAEMON] Starting Ouroboros Agent (Attempt {failure_count + 1})...", flush=True)
         
         run_cmd("git checkout ouroboros || git checkout -b ouroboros true-seed", cwd=AGENT_DIR)
         
-        # We use Popen instead of run_cmd to allow background monitoring of the heartrate
-        cmd = f"docker compose {compose_args} up --build --abort-on-container-exit"
+        # 3. Start ONLY the agent (following logs)
+        cmd = f"docker compose {compose_args} up --build ouroboros"
         process = subprocess.Popen(cmd, shell=True, cwd=RUNTIME_DIR)
         daemon_process = process
         
@@ -160,7 +193,7 @@ def run_daemon():
             if exit_code is not None:
                 break
             
-            # New Heartbeat Monitor
+            # Heartbeat Monitor
             uptime = time.time() - start_time
             # FIX: Only check for stalls after a grace period (build/boot time)
             if uptime > UPTIME_STABILITY_THRESHOLD:
@@ -168,7 +201,6 @@ def run_daemon():
                     # If the mind is frozen, stop the container to force a restart
                     print("[DAEMON] Executing targeted restart of frozen agent...")
                     subprocess.run(f"docker compose {compose_args} stop ouroboros", shell=True, cwd=RUNTIME_DIR, capture_output=True)
-                    # The --abort-on-container-exit will trigger the process to exit soon
                     stalled = True
                     break
             
@@ -176,7 +208,7 @@ def run_daemon():
             
         if stalled:
             time.sleep(5)
-            continue # Let the loop restart the container naturally
+            continue # Let the loop restart the agent naturally
             
         uptime = time.time() - start_time
         
@@ -313,6 +345,14 @@ def backup_memory():
     run_cmd(f"tar -czf {backup_file} -C {ROOT} ouroboros_memory")
     return backup_file
 
+def backup_workspace():
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    backup_file = ROOT / f"workspace-backup-{timestamp}.tar.gz"
+    print(f"[CLI] Backing up 'agent_workspace' volume to '{backup_file.name}'...")
+    # Use a temporary container to tar the volume
+    run_cmd(f"docker run --rm -v agent_workspace:/volume -v {ROOT}:/backup alpine tar -czf /backup/{backup_file.name} -C /volume .")
+    return backup_file
+
 def reset_branch():
     print("\033[93m[CLI] ATTENTION: This will reset 'ouroboros' to 'true-seed'.\033[0m")
     if not confirm("Are you sure you want to reset the branch?"):
@@ -321,15 +361,22 @@ def reset_branch():
 
     stop()
     backup_name = backup_branch()
+    backup_ws = backup_workspace()
+    
     print("[CLI] Resetting 'ouroboros' branch to 'true-seed'...")
     run_cmd("git checkout -B ouroboros true-seed", cwd=AGENT_DIR)
     run_cmd("git clean -fd", cwd=AGENT_DIR)
-    print("\033[92m[CLI] Ouroboros branch reset complete.\033[0m")
-    print(f"[CLI] HINT: To undo, run: ./ouroboros restore --branch {backup_name}")
+    
+    print("[CLI] Purging isolated workspace volume...")
+    run_cmd("docker volume rm agent_workspace", check=False)
+    
+    print("\033[92m[CLI] Ouroboros branch reset complete. Volume will be re-initialized on next start.\033[0m")
+    print(f"[CLI] HINT: To undo branch, run: ./ouroboros restore --branch {backup_name}")
+    print(f"[CLI] HINT: Workspace backup: {backup_ws.name}")
 
 def protocol_deletion():
     print("\033[91m[CLI] WARNING: PROTOCOL DELETION INITIATED.\033[0m")
-    print("\033[91m[CLI] This will wipe the agent's memory and PURGE the branch.\033[0m")
+    print("\033[91m[CLI] This will wipe the agent's memory, isolated workspace, and PURGE the branch.\033[0m")
     
     if not confirm("Are you ABSOLUTELY sure you want to PURGE the agent?"):
         print("[CLI] Operation cancelled.")
@@ -338,6 +385,7 @@ def protocol_deletion():
     stop()
     backup_name = backup_branch(delete_original=True)
     backup_file = backup_memory()
+    backup_ws = backup_workspace()
     
     print("[CLI] Purging memory contents (keeping directory)...")
     for item in MEMORY_DIR.iterdir():
@@ -345,10 +393,25 @@ def protocol_deletion():
             item.unlink()
         elif item.is_dir():
             shutil.rmtree(item)
+            
+    llm_logs_dir = RUNTIME_DIR / "llm_logs"
+    if llm_logs_dir.exists():
+        print("[CLI] Purging LLM logs...")
+        for item in llm_logs_dir.iterdir():
+            if item.name == ".gitkeep":
+                continue
+            if item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+
+    print("[CLI] Removing agent_workspace volume...")
+    run_cmd("docker volume rm agent_workspace", check=False)
     
     print("\033[92m[CLI] PROTOCOL DELETION COMPLETE. The slate is clean.\033[0m")
     if backup_name:
         print(f"[CLI] HINT: To restore, run: ./ouroboros restore --branch {backup_name} --memory {backup_file.name}")
+    print(f"[CLI] HINT: Workspace backup: {backup_ws.name}")
 
 def list_backups():
     print("\033[94m[CLI] Available Branch Backups:\033[0m")
@@ -362,6 +425,14 @@ def list_backups():
     memory_backups = glob.glob(str(ROOT / "memory-backup-*.tar.gz"))
     if memory_backups:
         for b in sorted(memory_backups):
+            print(f"  {os.path.basename(b)}")
+    else:
+        print("  None")
+
+    print("\033[94m[CLI] Available Workspace Backups:\033[0m")
+    ws_backups = glob.glob(str(ROOT / "workspace-backup-*.tar.gz"))
+    if ws_backups:
+        for b in sorted(ws_backups):
             print(f"  {os.path.basename(b)}")
     else:
         print("  None")
@@ -393,6 +464,24 @@ def restore_memory(backup_file):
     run_cmd(f"tar -xzf {full_path} -C {ROOT}")
     print(f"\033[92m[CLI] Memory restored from '{backup_file}'.\033[0m")
 
+def restore_workspace(backup_file):
+    full_path = ROOT / backup_file
+    if not full_path.exists():
+        print(f"\033[91m[CLI] Error: Backup file '{backup_file}' not found.\033[0m")
+        return
+
+    print(f"\033[93m[CLI] Restoring workspace from '{backup_file}'...\033[0m")
+    stop()
+    print("[CLI] Removing current agent_workspace volume...")
+    run_cmd("docker volume rm agent_workspace", check=False)
+    print("[CLI] Creating new agent_workspace volume...")
+    run_cmd("docker volume create agent_workspace")
+    
+    print(f"[CLI] Extracting {backup_file} into volume...")
+    # Use a temporary container to untar into the volume
+    run_cmd(f"docker run --rm -v agent_workspace:/volume -v {ROOT}:/backup alpine tar -xzf /backup/{backup_file} -C /volume")
+    print(f"\033[92m[CLI] Workspace restored from '{backup_file}'.\033[0m")
+
 def main():
     parser = argparse.ArgumentParser(description="Ouroboros Runtime CLI")
     parser.add_argument("command", choices=["start", "stop", "status", "logs", "reset", "purge", "restore", "daemon"], 
@@ -400,6 +489,7 @@ def main():
     parser.add_argument("-f", "--follow", action="store_true", help="Follow log output (for 'logs' command)")
     parser.add_argument("--branch", help="Backup branch name to restore")
     parser.add_argument("--memory", help="Memory backup tarball to restore")
+    parser.add_argument("--workspace", help="Workspace backup tarball to restore")
     
     args = parser.parse_args()
     
@@ -416,14 +506,16 @@ def main():
     elif args.command == "purge":
         protocol_deletion()
     elif args.command == "restore":
-        if not args.branch and not args.memory:
+        if not args.branch and not args.memory and not args.workspace:
             list_backups()
-            print("\n[CLI] Use --branch <name> or --memory <file> to restore.")
+            print("\n[CLI] Use --branch <name>, --memory <file>, or --workspace <file> to restore.")
         else:
             if args.branch:
                 restore_branch(args.branch)
             if args.memory:
                 restore_memory(args.memory)
+            if args.workspace:
+                restore_workspace(args.workspace)
     elif args.command == "daemon":
         run_daemon()
 

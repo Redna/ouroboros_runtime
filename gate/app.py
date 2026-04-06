@@ -36,6 +36,8 @@ BACKENDS = {
 
 # Explicit model mapping
 MODEL_MAP = {
+    "gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf": "local",
+    "gemma-4-31B-it-UD-Q4_K_XL.gguf": "local",
     "Qwen3.5-27B-Q4_K_M.gguf": "local",
     "mistralai_Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf": "local",
 }
@@ -413,12 +415,26 @@ async def check_environment():
 
 @app.get("/health")
 async def health():
+    local_reachable = False
+    try:
+        async with httpx.AsyncClient() as client:
+            test_resp = await client.get("http://llamacpp:8080/health", timeout=2.0)
+            if test_resp.status_code == 200:
+                local_reachable = True
+    except:
+        pass
+        
+    # Strictly healthy only if backend is ready
+    status = "healthy" if local_reachable else "degraded"
+    
     return {
-        "status": "healthy", 
-        "engine": "Ouroboros Gate", 
-        "budget": f"{get_current_spend():.4f}/{DAILY_BUDGET_LIMIT:.4f}",
-        "pricing_cached_models": len(PRICING_CACHE)
+        "status": status,
+        "engine": "Ouroboros Gate",
+        "local_engine_ready": local_reachable,
+        "current_spend": f"{get_current_spend():.4f}/{DAILY_BUDGET_LIMIT:.4f}"
     }
+
+
 
 if __name__ == "__main__":
     import uvicorn

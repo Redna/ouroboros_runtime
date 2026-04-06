@@ -20,5 +20,23 @@ if [ -f "/app/scripts/setup_hooks.sh" ]; then
     cd /app && sudo -u "$USER_NAME" -H bash scripts/setup_hooks.sh > /dev/null 2>&1
 fi
 
+echo "Locking down semantic firewall and git hooks..."
+
+# Ensure the hook exists and is executable
+if [ -f "/app/scripts/setup_hooks.sh" ]; then
+    /bin/bash /app/scripts/setup_hooks.sh
+fi
+
+# Transfer ownership of critical infrastructure to root
+# The agent will run as PUID (e.g., 1000) and will have read/execute access, but ZERO write access.
+chown -R root:root /app/scripts
+chown -R root:root /app/.git/hooks
+
+# Enforce strict permissions (755: Owner can rwx, others can only r-x)
+chmod -R 755 /app/scripts
+chmod -R 755 /app/.git/hooks
+
+echo "Containment established."
+
 echo "Awaking Ouroboros as $USER_NAME ($USER_ID:$GROUP_ID)..."
 exec gosu "$USER_NAME" "$@"

@@ -84,10 +84,10 @@ async def get_status():
             data["restarts"] = stats.get("restart_count", 0)
             data["last_start_time"] = stats.get("last_start_time", 0)
             data["preflight_failures"] = stats.get("preflight_failures", 0)
-    else:
-        data["restarts"] = 0
-        data["last_start_time"] = 0
-        data["preflight_failures"] = 0
+    
+    # Fallback for last_start_time if watchdog is not running
+    if data.get("last_start_time", 0) == 0 and status_file.exists():
+        data["last_start_time"] = os.path.getmtime(status_file)
     
     # Get daily spend
     today = time.strftime("%Y-%m-%d")
@@ -108,6 +108,9 @@ async def get_status():
     
     # Add system stats
     data["sys_stats"] = get_system_stats()
+    
+    # Add context limit for percentage calculation
+    data["context_limit"] = int(os.getenv("OUROBOROS_CONTEXT_WINDOW", "128000"))
     
     return data
 

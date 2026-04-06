@@ -2,6 +2,7 @@ services:
   llamacpp:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: llamacpp
+    restart: unless-stopped
     shm_size: 16G
     cap_add:
       - SYS_PTRACE
@@ -17,32 +18,47 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
     command:
       - -m
-      - /models/Qwen3.5-27B-Q4_K_M.gguf
+      - /models/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf
+      - --mmproj
+      - /models/mmproj-BF16.gguf
       - --host
       - 0.0.0.0
       - --port
       - "8080"
       - -ngl
-      - "99"
+      - "99"               
       - -c
-      - "102400"
-      - -fa
-      - "1"
+      - "71680"          
+      - --no-warmup
+      - --flash-attn      
+      - "on"              
       - --cache-type-k
-      - q8_0
+      - "q8_0"            
       - --cache-type-v
-      - q8_0
-      - --no-mmap
+      - "q8_0"            
+      - -b
+      - "1024"            
+      - -ub
+      - "1024"            
+      - -np
+      - "1"
+      - --temp
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "64"
+      - --chat-template-kwargs
+      - '{"enable_thinking":true}'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
+      test: ["CMD-SHELL", "curl -f -s -X POST http://localhost:8080/v1/chat/completions -H 'Content-Type: application/json' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
     networks:
       - ouroboros_net
 
-  gate:
-    depends_on:
-      llamacpp:
-        condition: service_healthy
+networks:
+  ouroboros_net:
+    driver: bridge

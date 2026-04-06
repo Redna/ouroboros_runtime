@@ -1,17 +1,50 @@
 let lastStartTime = 0;
 let currentStreamTaskId = null;
 let logEventSource = null;
+let followLogs = true;
+
+function toggleFollow() {
+    followLogs = !followLogs;
+    const btn = document.getElementById('follow-toggle');
+    if (btn) {
+        if (followLogs) {
+            btn.classList.add('active');
+            btn.innerText = 'FOLLOWING';
+            // Immediate scroll to bottom
+            const container = document.getElementById('log-container');
+            if (container) container.scrollTop = container.scrollHeight;
+        } else {
+            btn.classList.remove('active');
+            btn.innerText = 'UNFOLLOWED';
+        }
+    }
+}
 
 function showSection(sectionId) {
-    const wrapper = document.getElementById('sections-wrapper');
-    const target = document.getElementById(`section-${sectionId}`);
+    console.log(`Showing section: ${sectionId}`);
     
-    if (wrapper && target) {
-        wrapper.scrollTo({
-            left: target.offsetLeft,
-            behavior: 'smooth'
-        });
+    // Hide all sections
+    const sections = document.querySelectorAll('.tab-content');
+    sections.forEach(s => {
+        s.style.display = 'none';
+        s.classList.remove('active');
+    });
+
+    // Show target section
+    const target = document.getElementById(`section-${sectionId}`);
+    if (target) {
+        target.style.display = 'block';
+        target.classList.add('active');
     }
+
+    // Update tab buttons
+    const buttons = document.querySelectorAll('.tab-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${sectionId}'`)) {
+            btn.classList.add('active');
+        }
+    });
 
     // Trigger data updates
     if (sectionId === 'identity') updateIdentity();
@@ -23,54 +56,12 @@ function showSection(sectionId) {
     if (sectionId === 'llm') updateLLMLogs();
 }
 
-function initIntersectionObserver() {
-    const wrapper = document.getElementById('sections-wrapper');
-    const sections = document.querySelectorAll('.tab-content');
-    const buttons = document.querySelectorAll('.tab-btn');
-
-    const observerOptions = {
-        root: wrapper,
-        threshold: 0.5
-    };
-
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const sectionId = entry.target.id.replace('section-', '');
-                
-                // Update active tab button
-                buttons.forEach(btn => {
-                    btn.classList.remove('active');
-                    if (btn.getAttribute('onclick').includes(`'${sectionId}'`)) {
-                        btn.classList.add('active');
-                        // Ensure the tab button is visible in the scrollable tab bar
-                        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                    }
-                });
-
-                // Load data for the visible section
-                if (sectionId === 'identity') updateIdentity();
-                if (sectionId === 'insights') updateInsights();
-                if (sectionId === 'bio') updateBiography();
-                if (sectionId === 'state') updateFullState();
-                if (sectionId === 'history') updateHistory();
-                if (sectionId === 'timeline') updateTimeline();
-                if (sectionId === 'llm') updateLLMLogs();
-            }
-        });
-    }, observerOptions);
-
-    sections.forEach(section => observer.observe(section));
-}
-
 async function updateStatus() {
     try {
         const response = await fetch('/api/status');
         const data = await response.json();
         
-        if (document.getElementById('total-tokens')) document.getElementById('total-tokens').innerText = (data.global_tokens_consumed || 0).toLocaleString();
-        if (document.getElementById('global-input-tokens')) document.getElementById('global-input-tokens').innerText = (data.global_input_tokens || 0).toLocaleString();
-        if (document.getElementById('global-output-tokens')) document.getElementById('global-output-tokens').innerText = (data.global_output_tokens || 0).toLocaleString();
+        if (document.getElementById('trunk-turns')) document.getElementById('trunk-turns').innerText = data.trunk_turns || 0;
         if (document.getElementById('restart-count')) document.getElementById('restart-count').innerText = data.restarts || 0;
         if (document.getElementById('git-commits')) document.getElementById('git-commits').innerText = data.git?.commits || 0;
         
@@ -86,14 +77,13 @@ async function updateStatus() {
         if (document.getElementById('daily-spend')) document.getElementById('daily-spend').innerText = (data.daily_spend || 0).toFixed(4);
         if (document.getElementById('daily-budget')) document.getElementById('daily-budget').innerText = (data.daily_budget || 0).toFixed(2);
         
-        // Add binding for pre-flight failures
-        if (document.getElementById('preflight-failures')) {
-            document.getElementById('preflight-failures').innerText = data.preflight_failures || 0;
-        }
-
         if (document.getElementById('context-size')) document.getElementById('context-size').innerText = (data.last_context_size || 0).toLocaleString();
-        if (document.getElementById('input-tokens')) document.getElementById('input-tokens').innerText = data.last_input_tokens || 0;
-        if (document.getElementById('output-tokens')) document.getElementById('output-tokens').innerText = data.last_output_tokens || 0;
+        
+        // Calculate initial percentage if limit is available
+        if (data.context_limit && data.last_context_size) {
+            const pct = Math.min(100, Math.round((data.last_context_size / data.context_limit) * 100));
+            updateHUD(pct, 0, 0); // Update bar immediately
+        }
         
         lastStartTime = data.last_start_time;
 
@@ -102,25 +92,9 @@ async function updateStatus() {
             document.getElementById('runtime-indicator').className = 'online';
         }
 
-        // Update Cognitive Context UI
-        const contextBadge = document.getElementById('context-badge');
-        const taskDesc = document.getElementById('task-description');
-
-        let activeTaskId = 'global_trunk';
-        if (data.active_branch) {
-            activeTaskId = data.active_branch.task_id;
-            contextBadge.innerText = 'BRANCH: ' + activeTaskId;
-            contextBadge.className = 'status-badge context-branch';
-            taskDesc.innerText = 'OBJECTIVE: ' + data.active_branch.objective;
-        } else {
-            contextBadge.innerText = 'GLOBAL TRUNK';
-            contextBadge.className = 'status-badge context-trunk';
-            // We'll let updateTasks() handle the description if we are in the Trunk
-        }
-
-        // Manage Log Stream
-        if (activeTaskId !== currentStreamTaskId) {
-            startLogStream(activeTaskId);
+        // V5: We are always in singular_stream
+        if (currentStreamTaskId !== 'singular_stream') {
+            startLogStream('singular_stream');
         }
 
     } catch (err) {
@@ -162,23 +136,121 @@ function startLogStream(taskId) {
     };
 }
 
+function createLogEntryElement(entry) {
+    const div = document.createElement('div');
+    let roleClass = (entry.role || 'system').toLowerCase();
+    
+    // Normalize role for CSS
+    if (roleClass === 'ouroboros') roleClass = 'assistant';
+    
+    div.className = `log-entry role-${roleClass}`;
+    let content = entry.content || '';
+
+    // 1. HUD Extraction
+    const hudMatch = content.match(/\[HUD \| Context: (\d+)%(?: \| Turns: (\d+)%)? \| Queue: (\d+)\]/);
+    if (hudMatch) {
+        const contextPercent = parseInt(hudMatch[1]);
+        const turnsPercent = hudMatch[2] ? parseInt(hudMatch[2]) : 0;
+        const queueSize = parseInt(hudMatch[3]);
+        updateHUD(contextPercent, turnsPercent, queueSize);
+    }
+
+    // 2. Stall Detection
+    if (content.includes('[WARNING: Cognitive Intent Stall Detected]')) {
+        const warning = document.getElementById('stall-warning');
+        if (warning) warning.style.display = 'block';
+    } else {
+        const warning = document.getElementById('stall-warning');
+        if (warning) warning.style.display = 'none';
+    }
+
+    // 3. Special Styling for milestones/telemetry/overrides
+    if (entry.role === 'tool' && entry.name === 'fold_context') {
+        div.classList.add('milestone');
+    } else if (content.includes('[SYSTEM LOG: Historical Telemetry Archived: HUD |')) {
+        div.classList.add('telemetry');
+        div.innerHTML = `<span>Archived Telemetry Heartbeat</span>`;
+        return div;
+    } else if (content.includes('[SYSTEM OVERRIDE: CREATOR MESSAGE RECEIVED]')) {
+        div.classList.add('system-override');
+        content = content.replace('[SYSTEM OVERRIDE: CREATOR MESSAGE RECEIVED]', '').trim();
+    }
+
+    const label = document.createElement('span');
+    label.className = 'role-label';
+    label.innerText = (entry.role === 'tool' ? `TOOL [${entry.name}]` : (entry.role || 'SYSTEM').toUpperCase()) + ':';
+    div.appendChild(label);
+
+    const contentContainer = document.createElement('div');
+    contentContainer.className = 'log-content';
+
+    // Tool Call Handling
+    if (entry.tool_calls && entry.tool_calls.length > 0) {
+        entry.tool_calls.forEach(tc => {
+            const toolDiv = document.createElement('div');
+            toolDiv.className = 'tool-call-block';
+            
+            let args = tc.function.arguments;
+            try {
+                const parsedArgs = JSON.parse(args);
+                args = JSON.stringify(parsedArgs, null, 2);
+            } catch (e) {}
+
+            toolDiv.innerHTML = `
+                <span class="tool-name">CALL: ${escapeHtml(tc.function.name)}</span>
+                <code class="tool-args">${escapeHtml(args)}</code>
+            `;
+            div.appendChild(toolDiv);
+        });
+    }
+
+    if (content) {
+        const body = document.createElement('div');
+        body.className = 'log-content markdown-body';
+        body.innerHTML = marked.parse(content);
+        div.appendChild(body);
+    }
+
+    return div;
+}
+
 function appendLogEntry(entry) {
     const logContainer = document.getElementById('log-container');
     if (!logContainer) return;
     
-    const div = document.createElement('div');
-    const roleClass = (entry.role || 'system').toLowerCase();
-    div.className = `log-entry role-${roleClass}`;
-    const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
-    div.innerHTML = `<span class="role-label">${(entry.role || 'SYSTEM').toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
+    const element = createLogEntryElement(entry);
+    element.classList.add('new-entry-flash');
+    logContainer.appendChild(element);
     
-    logContainer.appendChild(div);
-    
-    // Auto-scroll logic
-    const threshold = 100; // px from bottom
-    const isAtBottom = logContainer.scrollHeight - logContainer.scrollTop - logContainer.clientHeight < threshold;
-    if (isAtBottom) {
+    // Respect Follow Toggle
+    if (followLogs) {
         logContainer.scrollTop = logContainer.scrollHeight;
+    }
+}
+
+function updateHUD(contextPercent, turnsPercent, queueSize) {
+    const ctxBar = document.getElementById('context-usage-bar');
+    const ctxLabel = document.getElementById('context-usage-percent');
+    const turnsBar = document.getElementById('turns-usage-bar');
+    const turnsLabel = document.getElementById('turns-usage-percent');
+    
+    if (ctxBar) ctxBar.style.width = contextPercent + '%';
+    if (ctxLabel) ctxLabel.innerText = contextPercent + '%';
+    
+    if (turnsBar) turnsBar.style.width = turnsPercent + '%';
+    if (turnsLabel) turnsLabel.innerText = turnsPercent + '%';
+    
+    // Change bar color based on usage
+    if (ctxBar) {
+        if (contextPercent > 90) ctxBar.style.background = '#ff4444';
+        else if (contextPercent > 70) ctxBar.style.background = '#ffaa00';
+        else ctxBar.style.background = 'linear-gradient(90deg, #00ffcc, #ff00ff)';
+    }
+
+    if (turnsBar) {
+        if (turnsPercent > 90) turnsBar.style.background = '#ff4444';
+        else if (turnsPercent > 70) turnsBar.style.background = '#ffaa00';
+        else turnsBar.style.background = 'linear-gradient(90deg, #ff00ff, #00ffcc)';
     }
 }
 
@@ -200,31 +272,29 @@ function formatDuration(seconds) {
 
 async function updateTasks() {
     try {
-        const responseStatus = await fetch('/api/status');
-        const statusData = await responseStatus.json();
-        
         const responseTasks = await fetch('/api/tasks');
         const tasks = await responseTasks.json();
         
         const taskList = document.getElementById('task-list');
+        const taskDesc = document.getElementById('task-description');
+        if (!taskList || !taskDesc) return;
+
         taskList.innerHTML = '';
         
         if (tasks.length > 0) {
-            // Only update the main description from the queue if we are in the Trunk
-            if (!statusData.active_branch) {
-                document.getElementById('task-description').innerText = tasks[0].description;
-            }
+            // Top task is the Current Focus
+            taskDesc.innerText = tasks[0].description;
             
             tasks.forEach(task => {
                 const li = document.createElement('li');
                 li.className = 'task-item';
-                // Using a basic escape for safety if escapeHtml isn't defined, or assume it's safe if it's internal
-                const safeDesc = task.description.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const safeDesc = escapeHtml(task.description);
                 li.innerHTML = `<span class="task-priority">P${task.priority}</span> ${safeDesc}`;
                 taskList.appendChild(li);
             });
-        } else if (!statusData.active_branch) {
-            document.getElementById('task-description').innerText = "Queue empty. Orchestrating or reflecting.";
+        } else {
+            taskDesc.innerText = "Orchestrating primary stream...";
+            taskList.innerHTML = '<li class="task-item" style="color: #555; font-style: italic;">No active tasks in queue.</li>';
         }
     } catch (err) {}
 }
@@ -276,12 +346,8 @@ async function updateLogs(taskId = null) {
 
         logContainer.innerHTML = '';
         logs.forEach(entry => {
-            const div = document.createElement('div');
-            const roleClass = (entry.role || 'system').toLowerCase();
-            div.className = `log-entry role-${roleClass}`;
-            const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
-            div.innerHTML = `<span class="role-label">${(entry.role || 'SYSTEM').toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
-            logContainer.appendChild(div);
+            const element = createLogEntryElement(entry);
+            logContainer.appendChild(element);
         });
         logContainer.scrollTop = logContainer.scrollHeight;
     } catch (err) {}
@@ -292,7 +358,6 @@ async function updateIdentity() {
     try {
         const response = await fetch('/api/identity');
         const data = await response.json();
-        console.log("Identity data received:", data);
         document.getElementById('identity-content').innerHTML = data.html;
     } catch (err) {
         console.error("Error updating identity:", err);
@@ -351,18 +416,10 @@ async function updateFullState() {
         const response = await fetch('/api/state');
         const state = await response.json();
         const container = document.getElementById('state-container');
+        if (!container) return;
         
-        let html = '<div class="state-grid">';
-        for (const [key, value] of Object.entries(state)) {
-            html += `
-                <div class="state-item">
-                    <div class="state-key">${escapeHtml(key)}</div>
-                    <div class="state-value">${escapeHtml(String(value))}</div>
-                </div>
-            `;
-        }
-        html += '</div>';
-        container.innerHTML = html;
+        // Pretty print the full state JSON
+        container.innerText = JSON.stringify(state, null, 2);
     } catch (err) {
         console.error("Error updating full state:", err);
     }
@@ -464,63 +521,32 @@ async function updateLLMLogs() {
 let selectedTaskId = null;
 
 async function updateTimeline() {
-    console.log("Updating hierarchical timeline...");
     try {
-        const responseStatus = await fetch('/api/status');
-        const statusData = await responseStatus.json();
-        const activeTaskId = statusData.active_branch ? statusData.active_branch.task_id : 'global_trunk';
-
         const response = await fetch('/api/historical_tasks');
         const tasks = await response.json();
         const container = document.getElementById('timeline-list');
         if (!container) return;
         container.innerHTML = '';
         
-        // Group tasks by parent_task_id
-        const taskMap = {};
-        const roots = [];
-        
-        tasks.forEach(task => {
-            task.children = [];
-            taskMap[task.task_id] = task;
-        });
-        
-        tasks.forEach(task => {
-            if (task.parent_task_id && taskMap[task.parent_task_id]) {
-                taskMap[task.parent_task_id].children.push(task);
-            } else {
-                roots.push(task);
-            }
-        });
+        // V5 is linear, so we just list them by time
+        tasks.sort((a, b) => b.mtime - a.mtime);
 
-        // Ensure global_trunk is always a root if it exists
-        const trunkIdx = roots.findIndex(t => t.task_id === 'global_trunk');
-        if (trunkIdx > -1) {
-            const trunk = roots.splice(trunkIdx, 1)[0];
-            roots.unshift(trunk);
-        }
-
-        const renderTask = (task, level = 0) => {
+        tasks.forEach(task => {
             const div = document.createElement('div');
             div.className = 'timeline-item';
-            if (level > 0) div.classList.add('child');
-            if (task.task_id === activeTaskId) div.classList.add('active-task');
+            if (task.task_id === 'singular_stream') div.classList.add('active-task');
             if (task.task_id === selectedTaskId) div.classList.add('selected-task');
-            
-            div.style.marginLeft = `${level * 20}px`;
-            if (level > 0) div.style.borderLeft = '1px solid #444';
             
             div.onclick = (e) => {
                 e.stopPropagation();
                 selectedTaskId = task.task_id;
-                // Re-render to update selected-task class
                 updateTimeline();
                 loadTaskLog(task.task_id);
             };
             
-            const isTrunk = task.task_id === 'global_trunk';
-            const icon = isTrunk ? '🧠' : '🌿';
-            const status = task.task_id === activeTaskId ? '<span class="online" style="font-size: 0.7rem; margin-left: 8px;">ACTIVE</span>' : '';
+            const isTrunk = task.task_id === 'singular_stream';
+            const icon = isTrunk ? '🧠' : '📜';
+            const status = isTrunk ? '<span class="online" style="font-size: 0.7rem; margin-left: 8px;">PRIMARY</span>' : '';
             
             div.innerHTML = `
                 <div class="timeline-header">
@@ -530,13 +556,7 @@ async function updateTimeline() {
                 <div class="timeline-summary">${escapeHtml(task.summary)}</div>
             `;
             container.appendChild(div);
-            
-            // Sort children by time ascending
-            task.children.sort((a, b) => a.mtime - b.mtime);
-            task.children.forEach(child => renderTask(child, level + 1));
-        };
-
-        roots.forEach(root => renderTask(root));
+        });
         
     } catch (err) {
         console.error("Error updating timeline:", err);
@@ -544,7 +564,6 @@ async function updateTimeline() {
 }
 
 async function loadTaskLog(taskId) {
-    console.log(`Loading task log: ${taskId}`);
     try {
         const titleElem = document.getElementById('timeline-task-title');
         if (titleElem) titleElem.innerText = `Task Log: ${taskId}`;
@@ -556,7 +575,7 @@ async function loadTaskLog(taskId) {
         if (!logContainer) return;
         
         // Handle visibility for Trunk
-        if (taskId === 'global_trunk') {
+        if (taskId === 'singular_stream') {
             toggleBtn.style.display = 'block';
             toggleBtn.innerText = 'View Mental State';
             logContainer.style.display = 'block';
@@ -574,12 +593,8 @@ async function loadTaskLog(taskId) {
         
         logContainer.innerHTML = '';
         logs.forEach(entry => {
-            const div = document.createElement('div');
-            const roleClass = (entry.role || 'system').toLowerCase();
-            div.className = `log-entry role-${roleClass}`;
-            const content = entry.content || (entry.tool_calls ? `[Tool Call] ${entry.tool_calls[0].function.name}` : '[Empty]');
-            div.innerHTML = `<span class="role-label">${(entry.role || 'SYSTEM').toUpperCase()}:</span> <span>${escapeHtml(content)}</span>`;
-            logContainer.appendChild(div);
+            const element = createLogEntryElement(entry);
+            logContainer.appendChild(element);
         });
         logContainer.scrollTop = 0;
     } catch (err) {
@@ -634,29 +649,23 @@ function copyTrace(call) {
 }
 
 async function updateHistory() {
-    console.log("Updating history...");
     try {
         const response = await fetch('/api/history');
         const history = await response.json();
-        console.log("History data received:", history);
         const container = document.getElementById('history-container');
+        if (!container) return;
         container.innerHTML = '';
         history.forEach(msg => {
-            const div = document.createElement('div');
-            // Normalize role to lowercase for CSS class
-            let roleClass = msg.role.toLowerCase();
-            if (roleClass === 'ouroboros') roleClass = 'assistant';
-            
-            div.className = `log-entry role-${roleClass}`;
-            // Handle both msg.text (chat_history) and msg.content (task logs)
-            const textContent = msg.text || msg.content || '';
-            div.innerHTML = `<span class="role-label">${msg.role.toUpperCase()}:</span> <span>${escapeHtml(textContent)}</span>`;
-            container.appendChild(div);
+            const entry = {
+                role: msg.role,
+                content: msg.text || msg.content || '',
+                tool_calls: msg.tool_calls
+            };
+            const element = createLogEntryElement(entry);
+            container.appendChild(element);
         });
         container.scrollTop = container.scrollHeight;
-    } catch (err) {
-        console.error("Error updating history:", err);
-    }
+    } catch (err) {}
 }
 
 function escapeHtml(text) {
@@ -665,15 +674,39 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+async function updateTokenStats() {
+    try {
+        const response = await fetch('/api/token_stats');
+        const data = await response.json();
+        
+        if (document.getElementById('total-tokens')) {
+            document.getElementById('total-tokens').innerText = data.total_tokens.toLocaleString();
+        }
+        if (document.getElementById('input-tokens')) {
+            document.getElementById('input-tokens').innerText = data.input_tokens.toLocaleString();
+        }
+        if (document.getElementById('output-tokens')) {
+            document.getElementById('output-tokens').innerText = data.output_tokens.toLocaleString();
+        }
+        if (document.getElementById('models-used')) {
+            let modelsText = data.models && data.models.length > 0 ? data.models.join(', ') : 'None';
+            document.getElementById('models-used').innerText = modelsText;
+        }
+    } catch (err) {
+        console.error("Token stats update failed:", err);
+    }
+}
+
 function init() {
     updateStatus();
     updateTasks();
     updateScheduledTasks();
-    initIntersectionObserver();
+    updateTokenStats();
 
     setInterval(updateStatus, 5000);
     setInterval(updateTasks, 5000);
     setInterval(updateScheduledTasks, 5000);
+    setInterval(updateTokenStats, 10000); // Check every 10 seconds
     setInterval(() => {
         if (document.getElementById('section-timeline').classList.contains('active')) {
             updateTimeline();
