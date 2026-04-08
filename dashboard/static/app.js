@@ -80,17 +80,19 @@ async function updateStatus() {
             if (llmLogs && llmLogs.length > 0) {
                 const latest = llmLogs[0];
                 
-                // Cache Hit Calculation
-                const cached = latest.usage?.prompt_tokens_details?.cached_tokens || 0;
-                const total = latest.usage?.prompt_tokens || 1;
+                // Cache Hit Calculation (Nested under response)
+                const usage = latest.response?.usage;
+                const cached = usage?.prompt_tokens_details?.cached_tokens || 0;
+                const total = usage?.prompt_tokens || 1;
                 const hitPct = Math.round((cached / total) * 100);
                 
                 if (document.getElementById('cache-hit-percent')) document.getElementById('cache-hit-percent').innerText = hitPct + '%';
                 if (document.getElementById('cache-hit-bar')) document.getElementById('cache-hit-bar').style.width = hitPct + '%';
                 
-                // Turn Time Calculation (ms to seconds)
-                const promptMs = latest.timings?.prompt_ms || 0;
-                const predMs = latest.timings?.predicted_ms || 0;
+                // Turn Time Calculation (Nested under response)
+                const timings = latest.response?.timings;
+                const promptMs = timings?.prompt_ms || 0;
+                const predMs = timings?.predicted_ms || 0;
                 const totalSeconds = ((promptMs + predMs) / 1000).toFixed(1);
                 
                 if (document.getElementById('last-turn-time')) document.getElementById('last-turn-time').innerText = totalSeconds + 's';
