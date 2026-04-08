@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, 
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
+# Ouroboros Gate - v1.1 Hotfix
 load_dotenv()
 
 app = FastAPI(title="Ouroboros Gate")
