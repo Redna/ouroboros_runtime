@@ -14,7 +14,6 @@ services:
       - UV_PROJECT_ENVIRONMENT=/venv
       - UV_CACHE_DIR=/tmp/.uv-cache
       - DEFAULT_MODEL=${DEFAULT_MODEL}
-      - SKIP_CONSTITUTIONAL_AUDIT=1
     volumes:
       - ../ouroboros_memory:/memory
       - agent_workspace:/app
