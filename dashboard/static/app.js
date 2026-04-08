@@ -73,6 +73,32 @@ async function updateStatus() {
             if (document.getElementById('mem-bar')) document.getElementById('mem-bar').style.width = data.sys_stats.memory + '%';
         }
 
+        // Update Cache Hit and Turn Time from latest LLM logs
+        try {
+            const llmResp = await fetch('/api/llm_logs');
+            const llmLogs = await llmResp.json();
+            if (llmLogs && llmLogs.length > 0) {
+                const latest = llmLogs[0];
+                
+                // Cache Hit Calculation
+                const cached = latest.usage?.prompt_tokens_details?.cached_tokens || 0;
+                const total = latest.usage?.prompt_tokens || 1;
+                const hitPct = Math.round((cached / total) * 100);
+                
+                if (document.getElementById('cache-hit-percent')) document.getElementById('cache-hit-percent').innerText = hitPct + '%';
+                if (document.getElementById('cache-hit-bar')) document.getElementById('cache-hit-bar').style.width = hitPct + '%';
+                
+                // Turn Time Calculation (ms to seconds)
+                const promptMs = latest.timings?.prompt_ms || 0;
+                const predMs = latest.timings?.predicted_ms || 0;
+                const totalSeconds = ((promptMs + predMs) / 1000).toFixed(1);
+                
+                if (document.getElementById('last-turn-time')) document.getElementById('last-turn-time').innerText = totalSeconds + 's';
+            }
+        } catch (llmErr) {
+            console.error("Failed to update LLM metrics:", llmErr);
+        }
+
         // Update Budget
         if (document.getElementById('daily-spend')) document.getElementById('daily-spend').innerText = (data.daily_spend || 0).toFixed(4);
         if (document.getElementById('daily-budget')) document.getElementById('daily-budget').innerText = (data.daily_budget || 0).toFixed(2);
