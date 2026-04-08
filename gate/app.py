@@ -415,7 +415,18 @@ async def check_environment():
 
 @app.get("/health")
 async def health():
-...
+    local_reachable = False
+    try:
+        async with httpx.AsyncClient() as client:
+            test_resp = await client.get("http://llamacpp:8080/health", timeout=2.0)
+            if test_resp.status_code == 200:
+                local_reachable = True
+    except:
+        pass
+        
+    # Strictly healthy only if backend is ready
+    status = "healthy" if local_reachable else "degraded"
+    
     return {
         "status": status,
         "engine": "Ouroboros Gate",
