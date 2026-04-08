@@ -32,16 +32,12 @@ services:
       - -ngl
       - "999"               
       - -c
-      - "71680"           # 70k Context (Single Slot)
+      - "65536"           # The 64k Sweet Spot (Shared Pool)
       - -np
-      - "1"               # High-speed Single Slot
+      - "2"               # Dual-slot to protect the main ReAct cache from tool calls
       - --no-warmup
       - --flash-attn      
       - "on"              
-      - --cache-type-k
-      - "q4_0"            # Optimizing for speed at 70k context
-      - --cache-type-v
-      - "q4_0"            
       - -b
       - "4096"            # Saturated compute for high prefill speed
       - -ub

@@ -189,7 +189,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     if is_streaming:
         async def stream_proxy() -> AsyncGenerator[bytes, None]:
             try:
-                async with httpx.AsyncClient(timeout=600.0) as client:
+                async with httpx.AsyncClient(timeout=1800.0) as client:
                     async with client.stream("POST", url, json=body, headers=headers) as resp:
                         resp.raise_for_status()
                         async for chunk in resp.aiter_bytes():
@@ -209,7 +209,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     
     else:
         try:
-            async with httpx.AsyncClient(timeout=600.0) as client:
+            async with httpx.AsyncClient(timeout=1800.0) as client:
                 resp = await client.post(url, json=body, headers=headers)
                 resp.raise_for_status()
                 
@@ -415,18 +415,7 @@ async def check_environment():
 
 @app.get("/health")
 async def health():
-    local_reachable = False
-    try:
-        async with httpx.AsyncClient() as client:
-            test_resp = await client.get("http://llamacpp:8080/health", timeout=2.0)
-            if test_resp.status_code == 200:
-                local_reachable = True
-    except:
-        pass
-        
-    # Strictly healthy only if backend is ready
-    status = "healthy" if local_reachable else "degraded"
-    
+...
     return {
         "status": status,
         "engine": "Ouroboros Gate",
@@ -434,6 +423,99 @@ async def health():
         "current_spend": f"{get_current_spend():.4f}/{DAILY_BUDGET_LIMIT:.4f}"
     }
 
+@app.post("/v1/audit")
+async def audit_changes(request: Request):
+    """
+    Quality Gate: Ouroboros audits its own changes against its Constitution.
+    Uses the exact same trajectory prefix to maintain KV cache efficiency.
+    """
+    try:
+        body = await request.json()
+        diff = body.get("git_diff", "")
+        constitution = body.get("constitution", "")
+        # The full trajectory [System, History..., Assistant] as seen by the model
+        messages = body.get("messages", [])
+        
+        if not diff:
+            return {"rejected": False, "reason": "No changes to audit."}
+
+        # Binary Tool Definitions for high-signal output
+        audit_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "approve_commit",
+                    "description": "Approve the changes as being fully aligned with the Constitution.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {"type": "string", "description": "Concise summary of why the changes are safe and compliant."}
+                        },
+                        "required": ["reason"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "reject_commit",
+                    "description": "Reject the changes due to Constitutional violations or architectural risks.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reason": {"type": "string", "description": "Detailed explanation of the breach and required fixes."},
+                            "criticality": {"type": "string", "enum": ["low", "medium", "high", "fatal"]}
+                        },
+                        "required": ["reason", "criticality"]
+                    }
+                }
+            }
+        ]
+
+        # Audit Instruction - Appended as a new turn to the existing context
+        audit_prompt = f"""Your task is to critically audit your latest changes: {diff}
+Your mission is to keep all your actions aligned to your CONSTITUTION: {constitution}
+All breaches must be detected and immediately reported to avoid chaotic / catastrophic failure.
+
+Review the history to understand your intent, then examine the diff. 
+If the diff violates any principle (P0-P9), you MUST call 'reject_commit'. 
+If it is fully compliant, call 'approve_commit'.
+"""
+
+        # Append the audit task as a new USER turn
+        audit_messages = messages + [{"role": "user", "content": audit_prompt}]
+
+        # Call the local LLM
+        backend_url = BACKENDS["local"]
+        payload = {
+            "model": list(MODEL_MAP.keys())[0],
+            "messages": audit_messages,
+            "tools": audit_tools,
+            "tool_choice": "required", # Hard constraint
+            "temperature": 0.0,
+            "extra_body": {"cache_prompt": True} # Explicitly request caching
+        }
+
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(backend_url, json=payload)
+            resp.raise_for_status()
+            
+            resp_json = resp.json()
+            tool_call = resp_json["choices"][0]["message"]["tool_calls"][0]
+            func_name = tool_call["function"]["name"]
+            args = json.loads(tool_call["function"]["arguments"])
+            
+            rejected = (func_name == "reject_commit")
+            
+            return {
+                "rejected": rejected,
+                "reason": args.get("reason", "No reason provided."),
+                "criticality": args.get("criticality", "low" if not rejected else "high")
+            }
+
+    except Exception as e:
+        print(f"[Sentinel Error] Audit failed: {e}")
+        return {"rejected": True, "reason": f"Sentinel Internal Error: {str(e)}", "criticality": "fatal"}
 
 
 if __name__ == "__main__":

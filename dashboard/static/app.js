@@ -79,10 +79,29 @@ async function updateStatus() {
         
         if (document.getElementById('context-size')) document.getElementById('context-size').innerText = (data.last_context_size || 0).toLocaleString();
         
+        // Update Token Metrics
+        if (document.getElementById('total-tokens')) {
+            document.getElementById('total-tokens').innerText = (data.total_tokens || 0).toLocaleString();
+        }
+        if (document.getElementById('input-tokens')) {
+            document.getElementById('input-tokens').innerText = (data.input_tokens || 0).toLocaleString();
+        }
+        if (document.getElementById('output-tokens')) {
+            document.getElementById('output-tokens').innerText = (data.output_tokens || 0).toLocaleString();
+        }
+        if (document.getElementById('models-used')) {
+            let modelsText = data.models && data.models.length > 0 ? data.models.join(', ') : 'None';
+            document.getElementById('models-used').innerText = modelsText;
+        }
+
         // Calculate initial percentage if limit is available
         if (data.context_limit && data.last_context_size) {
             const pct = Math.min(100, Math.round((data.last_context_size / data.context_limit) * 100));
-            updateHUD(pct, 0, 0); // Update bar immediately
+            const turns = data.timeline_turns || 0;
+            const turnLimit = data.turn_limit || 50;
+            // Use turn_limit from API for the progress bar
+            const turnsPct = Math.min(100, Math.round((turns / turnLimit) * 100));
+            updateHUD(pct, turnsPct, 0); 
         }
         
         lastStartTime = data.last_start_time;
@@ -146,13 +165,34 @@ function createLogEntryElement(entry) {
     div.className = `log-entry role-${roleClass}`;
     let content = entry.content || '';
 
-    // 1. HUD Extraction
-    const hudMatch = content.match(/\[HUD \| Context: (\d+)%(?: \| Turns: (\d+)%)? \| Queue: (\d+)\]/);
+    // 1. HUD Extraction and Visual Rendering
+    // Matches: [HUD | Context: 10% | Turns: 5 | Queue: 0]
+    const hudRegex = /\[HUD \| Context: (\d+)% \| Turns: (\d+) \| Queue: (\d+)\]/;
+    const hudMatch = content.match(hudRegex);
     if (hudMatch) {
         const contextPercent = parseInt(hudMatch[1]);
-        const turnsPercent = hudMatch[2] ? parseInt(hudMatch[2]) : 0;
+        const turnsCount = parseInt(hudMatch[2]);
         const queueSize = parseInt(hudMatch[3]);
+        
+        // Convert turn count to a visual percentage for the progress bar (max 50)
+        const turnsPercent = Math.min(100, Math.round((turnsCount / 50) * 100));
+        
         updateHUD(contextPercent, turnsPercent, queueSize);
+        
+        // Create a visual HUD block
+        const hudBlock = document.createElement('div');
+        hudBlock.className = 'hud-log-block';
+        hudBlock.innerHTML = `
+            <span class="hud-icon">🧠</span>
+            <div class="hud-data">
+                <span class="hud-stat">CTX: ${contextPercent}%</span>
+                <span class="hud-stat">TRN: ${turnsCount}</span>
+                <span class="hud-stat">QUE: ${queueSize}</span>
+            </div>
+        `;
+        
+        content = content.replace(hudRegex, '').trim();
+        div.appendChild(hudBlock);
     }
 
     // 2. Stall Detection
@@ -168,6 +208,25 @@ function createLogEntryElement(entry) {
     if (entry.role === 'tool' && entry.name === 'fold_context') {
         div.classList.add('milestone');
     } else if (content.includes('[SYSTEM LOG: Historical Telemetry Archived: HUD |')) {
+        // Extract metrics from the archived string for the visual block
+        const archivedMatch = content.match(/HUD \| Context: (\d+)% \| Turns: (\d+) \| Queue: (\d+)/);
+        if (archivedMatch) {
+            const turnsCount = parseInt(archivedMatch[2]);
+            const hBlock = document.createElement('div');
+            hBlock.className = 'hud-log-block';
+            hBlock.style.opacity = '0.6'; // Dimmed for history
+            hBlock.innerHTML = `
+                <span class="hud-icon">💾</span>
+                <div class="hud-data">
+                    <span class="hud-stat">CTX: ${archivedMatch[1]}%</span>
+                    <span class="hud-stat">TRN: ${turnsCount}</span>
+                    <span class="hud-stat">QUE: ${archivedMatch[3]}</span>
+                </div>
+            `;
+            div.className = `log-entry telemetry`;
+            div.appendChild(hBlock);
+            return div;
+        }
         div.classList.add('telemetry');
         div.innerHTML = `<span>Archived Telemetry Heartbeat</span>`;
         return div;
@@ -430,25 +489,40 @@ async function updateLLMLogs() {
         const response = await fetch('/api/llm_logs');
         const logs = await response.json();
         const container = document.getElementById('llm-container');
+        if (!container) return;
         container.innerHTML = '';
         
+        if (logs.length === 0) {
+            container.innerHTML = '<p style="color: #666; font-style: italic; padding: 20px;">No LLM traces found yet.</p>';
+            return;
+        }
+
         logs.forEach(call => {
             const traceDetails = document.createElement('details');
             traceDetails.className = 'llm-call-entry';
             
+            const totalTokens = call.response?.usage?.total_tokens || 'Unknown';
+            
             const summary = document.createElement('summary');
             summary.className = 'llm-call-header';
-            summary.innerHTML = `<span>Trace: ${call.timestamp}</span> <span style="color: #666; font-size: 0.8rem;">${call.model}</span>`;
+            summary.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <span>Trace: ${call.timestamp} | <small style="color: var(--accent-color);">${totalTokens} tokens</small></span>
+                    <span style="color: #666; font-size: 0.8rem; margin-right: 10px;">${call.model}</span>
+                </div>
+            `;
             
             const copyBtn = document.createElement('button');
-            copyBtn.innerText = 'Copy Trace';
+            copyBtn.innerText = 'Copy JSON';
             copyBtn.className = 'copy-btn';
+            copyBtn.style.padding = '2px 8px';
+            copyBtn.style.fontSize = '0.7rem';
             copyBtn.onclick = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 copyTrace(call);
             };
-            summary.appendChild(copyBtn);
+            summary.querySelector('div').appendChild(copyBtn);
             
             traceDetails.appendChild(summary);
 
@@ -456,9 +530,11 @@ async function updateLLMLogs() {
             body.className = 'llm-call-body';
 
             // Messages in this trace
-            call.messages?.forEach(m => {
+            call.messages?.forEach((m, idx) => {
                 const msgDetails = document.createElement('details');
                 msgDetails.className = 'llm-msg-details';
+                // Open first and last message by default
+                if (idx === 0 || idx === call.messages.length - 1) msgDetails.open = true;
                 
                 const msgSummary = document.createElement('summary');
                 msgSummary.className = `role-${m.role}-summary`;
@@ -468,8 +544,12 @@ async function updateLLMLogs() {
                 const msgContent = document.createElement('div');
                 msgContent.className = `llm-msg-content role-${m.role} markdown-body`;
                 
-                const text = m.content || (m.tool_calls ? `[Tool Call: ${m.tool_calls[0].function.name}]` : '[Empty]');
-                msgContent.innerHTML = marked.parse(text);
+                let text = m.content || '';
+                if (m.tool_calls) {
+                    text += '\n\n**Tool Calls:**\n' + m.tool_calls.map(tc => `- \`${tc.function.name}\``).join('\n');
+                }
+                
+                msgContent.innerHTML = marked.parse(text || '[Empty]');
                 
                 msgDetails.appendChild(msgContent);
                 body.appendChild(msgDetails);
@@ -479,10 +559,11 @@ async function updateLLMLogs() {
             if (call.response?.reasoning_content) {
                 const reasonDetails = document.createElement('details');
                 reasonDetails.className = 'llm-msg-details';
+                reasonDetails.open = true;
                 
                 const reasonSummary = document.createElement('summary');
                 reasonSummary.className = 'role-reasoning-summary';
-                reasonSummary.innerText = 'REASONING';
+                reasonSummary.innerText = 'REASONING (CoT)';
                 reasonDetails.appendChild(reasonSummary);
 
                 const reasonContent = document.createElement('div');
@@ -493,22 +574,24 @@ async function updateLLMLogs() {
                 body.appendChild(reasonDetails);
             }
 
-            // The final response
-            const respDetails = document.createElement('details');
-            respDetails.className = 'llm-msg-details';
-            respDetails.open = true; // Keep the actual response open by default
-            
-            const respSummary = document.createElement('summary');
-            respSummary.className = 'role-assistant-summary';
-            respSummary.innerText = 'FINAL RESPONSE';
-            respDetails.appendChild(respSummary);
+            // The final response content
+            if (call.response?.content) {
+                const respDetails = document.createElement('details');
+                respDetails.className = 'llm-msg-details';
+                respDetails.open = true;
+                
+                const respSummary = document.createElement('summary');
+                respSummary.className = 'role-assistant-summary';
+                respSummary.innerText = 'FINAL RESPONSE';
+                respDetails.appendChild(respSummary);
 
-            const respContent = document.createElement('div');
-            respContent.className = 'llm-msg-content role-assistant markdown-body';
-            respContent.innerHTML = marked.parse(call.response?.content || '');
-            
-            respDetails.appendChild(respContent);
-            body.appendChild(respDetails);
+                const respContent = document.createElement('div');
+                respContent.className = 'llm-msg-content role-assistant markdown-body';
+                respContent.innerHTML = marked.parse(call.response.content);
+                
+                respDetails.appendChild(respContent);
+                body.appendChild(respDetails);
+            }
 
             traceDetails.appendChild(body);
             container.appendChild(traceDetails);
@@ -674,26 +757,29 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-async function updateTokenStats() {
+async function updateLLMActive() {
     try {
-        const response = await fetch('/api/token_stats');
+        const response = await fetch('/api/llm_active');
         const data = await response.json();
         
-        if (document.getElementById('total-tokens')) {
-            document.getElementById('total-tokens').innerText = data.total_tokens.toLocaleString();
-        }
-        if (document.getElementById('input-tokens')) {
-            document.getElementById('input-tokens').innerText = data.input_tokens.toLocaleString();
-        }
-        if (document.getElementById('output-tokens')) {
-            document.getElementById('output-tokens').innerText = data.output_tokens.toLocaleString();
-        }
-        if (document.getElementById('models-used')) {
-            let modelsText = data.models && data.models.length > 0 ? data.models.join(', ') : 'None';
-            document.getElementById('models-used').innerText = modelsText;
+        const pulse = document.getElementById('engine-pulse');
+        const monitor = document.getElementById('prefill-monitor');
+        const bar = document.getElementById('prefill-bar');
+        const status = document.getElementById('prefill-status');
+
+        if (data.is_processing) {
+            pulse.classList.add('active');
+            monitor.style.display = 'block';
+            
+            const pct = Math.round((data.progress_tokens / data.total_tokens) * 100);
+            bar.style.width = pct + '%';
+            status.innerText = `${data.progress_tokens.toLocaleString()} / ${data.total_tokens.toLocaleString()} TKNS`;
+        } else {
+            pulse.classList.remove('active');
+            monitor.style.display = 'none';
         }
     } catch (err) {
-        console.error("Token stats update failed:", err);
+        // Silently fail for the pulse
     }
 }
 
@@ -701,12 +787,12 @@ function init() {
     updateStatus();
     updateTasks();
     updateScheduledTasks();
-    updateTokenStats();
+    updateLLMActive();
 
     setInterval(updateStatus, 5000);
     setInterval(updateTasks, 5000);
     setInterval(updateScheduledTasks, 5000);
-    setInterval(updateTokenStats, 10000); // Check every 10 seconds
+    setInterval(updateLLMActive, 1000); // High frequency for smooth progress
     setInterval(() => {
         if (document.getElementById('section-timeline').classList.contains('active')) {
             updateTimeline();

@@ -8,9 +8,22 @@
 </head>
 <body>
     <header>
-        <h1>Ouroboros</h1>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <h1>Ouroboros</h1>
+            <div id="engine-pulse" class="pulse-indicator" title="LLM Activity"></div>
+        </div>
         <div id="runtime-status" class="status-badge">Runtime: <span id="runtime-indicator">Checking...</span></div>
     </header>
+
+    <div id="prefill-monitor" style="display: none; background: #331100; border-bottom: 1px solid #ff6600; padding: 10px 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <span style="color: #ffaa00; font-size: 0.8rem; font-weight: bold; letter-spacing: 1px;">LLM PREFILL IN PROGRESS...</span>
+            <span id="prefill-status" style="color: #ffaa00; font-family: monospace; font-size: 0.8rem;">0 / 0</span>
+        </div>
+        <div class="progress-bar-container" style="height: 4px; background: #442200;">
+            <div id="prefill-bar" class="progress-bar" style="width: 0%; background: #ff6600; box-shadow: 0 0 10px #ff6600;"></div>
+        </div>
+    </div>
 
     <nav class="tabs">
         <button class="tab-btn active" onclick="showSection('overview')">Overview</button>

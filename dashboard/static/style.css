@@ -220,6 +220,38 @@ main {
     font-family: 'Fira Code', monospace;
 }
 
+.hud-log-block {
+    margin: 10px 0;
+    padding: 10px;
+    background: linear-gradient(90deg, rgba(0, 255, 204, 0.1) 0%, rgba(0, 0, 0, 0) 100%);
+    border: 1px solid rgba(0, 255, 204, 0.2);
+    border-left: 4px solid var(--accent-color);
+    border-radius: 4px;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: var(--accent-color);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.hud-log-block .hud-icon {
+    font-size: 1.2rem;
+    filter: drop-shadow(0 0 5px var(--accent-color));
+}
+
+.hud-log-block .hud-data {
+    display: flex;
+    gap: 10px;
+}
+
+.hud-log-block .hud-stat {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 255, 204, 0.1);
+}
+
 .role-label { font-weight: bold; margin-bottom: 4px; display: block; font-size: 0.8rem; letter-spacing: 0.5px; }
 
 .role-user .role-label { color: #5bc0de; }
@@ -400,6 +432,26 @@ details[open] summary { margin-bottom: 8px; border-bottom: 1px solid #333; }
     100% { background-color: transparent; }
 }
 
+.pulse-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #333;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+}
+
+.pulse-indicator.active {
+    background: #ff6600;
+    box-shadow: 0 0 15px #ff6600, 0 0 30px rgba(255, 102, 0, 0.5);
+    animation: engine-throb 1s infinite alternate;
+}
+
+@keyframes engine-throb {
+    from { transform: scale(1); opacity: 1; }
+    to { transform: scale(1.2); opacity: 0.7; }
+}
+
 footer {
     margin-top: 40px;
     padding: 20px;
@@ -418,4 +470,45 @@ footer {
 @media (max-width: 768px) {
     .timeline-layout { grid-template-columns: 1fr; height: auto; }
     .card-grid { grid-template-columns: 1fr; }
+}
+
+/* Enhanced LLM Trace Styles */
+.llm-call-header:hover {
+    background: #2a2a2a;
+}
+
+.llm-msg-details summary {
+    font-weight: bold;
+    letter-spacing: 1px;
+    transition: background 0.2s;
+}
+
+.role-system-summary { color: #888; border-left: 3px solid #444; }
+.role-user-summary { color: #5bc0de; border-left: 3px solid #5bc0de; }
+.role-assistant-summary { color: #f0ad4e; border-left: 3px solid #f0ad4e; }
+.role-reasoning-summary { color: var(--accent-color); border-left: 3px solid var(--accent-color); background: #0a1a1a !important; }
+
+.llm-msg-content.role-system { color: #777; font-style: italic; }
+.llm-msg-content.role-user { border-left: 1px solid rgba(91, 192, 222, 0.2); }
+.llm-msg-content.role-assistant { border-left: 1px solid rgba(240, 173, 78, 0.2); }
+.llm-msg-content.role-reasoning { 
+    background: #051010; 
+    border-left: 1px solid var(--accent-color);
+    color: #a0ffe0;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.8rem;
+}
+
+.copy-btn {
+    background: #333;
+    color: #ccc;
+    border: 1px solid #444;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-left: 10px;
+}
+
+.copy-btn:hover {
+    background: #444;
+    color: #fff;
 }

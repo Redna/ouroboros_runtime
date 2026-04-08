@@ -40,7 +40,12 @@ COPY ouroboros/ .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-progress
 
-# 4. Add the entrypoint script
+# 4. Add runtime scripts (Hardened)
+COPY ouroboros_runtime/scripts/ /runtime_scripts/
+RUN chown -R root:root /runtime_scripts && chmod -R 555 /runtime_scripts && \
+    chmod +x /runtime_scripts/setup_hooks.sh
+
+# 5. Add the entrypoint script
 COPY ouroboros_runtime/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

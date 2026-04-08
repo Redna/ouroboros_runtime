@@ -15,7 +15,7 @@ app = FastAPI()
 
 # Git safety
 try:
-    subprocess.run(["git", "config", "--global", "--add", "safe.directory", "/agent_soul"], check=False)
+    subprocess.run(["git", "config", "--global", "--add", "safe.directory", "*"], check=False)
 except:
     pass
 
@@ -110,9 +110,66 @@ async def get_status():
     data["sys_stats"] = get_system_stats()
     
     # Add context limit for percentage calculation
-    data["context_limit"] = int(os.getenv("OUROBOROS_CONTEXT_WINDOW", "128000"))
+    data["context_limit"] = int(os.getenv("OUROBOROS_CONTEXT_WINDOW", "71680"))
+    
+    # Add turn limit for dashboard visualization (P5: 50 turns is the soft limit)
+    data["turn_limit"] = 50
+    
+    # Consolidate token stats into status
+    data["total_tokens"] = data.get("global_tokens_consumed", 0)
+    data["input_tokens"] = data.get("global_input_tokens", 0)
+    data["output_tokens"] = data.get("global_output_tokens", 0)
+    
+    # Find unique models in LLM logs
+    try:
+        log_files = glob.glob(str(RUNTIME_LOG_DIR / "call-*.json"))
+        models = set()
+        for file_path in sorted(log_files, reverse=True)[:50]:
+            try:
+                with open(file_path, "r") as f:
+                    log_entry = json.load(f)
+                    if "model" in log_entry:
+                        models.add(log_entry["model"])
+            except: continue
+        data["models"] = list(models)
+    except:
+        data["models"] = []
     
     return data
+
+@app.get("/api/llm_active")
+async def get_llm_active():
+    """Queries llamacpp slots to see real-time prefill/generation progress."""
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            # Increased timeout to 5s because under heavy load the LLM server might be slow
+            resp = await client.get("http://llamacpp:8080/slots", timeout=5.0)
+            if resp.status_code == 200:
+                slots = resp.json()
+                if slots and isinstance(slots, list):
+                    # Check ALL slots for any processing activity
+                    active_slot = next((s for s in slots if s.get("is_processing")), None)
+                    
+                    if active_slot:
+                        # Support multiple llamacpp API versions for progress
+                        progress = active_slot.get("n_past")
+                        if progress is None:
+                            next_token = active_slot.get("next_token")
+                            if next_token and isinstance(next_token, list) and len(next_token) > 0:
+                                progress = next_token[0].get("n_decoded", 0)
+                        
+                        return {
+                            "is_processing": True,
+                            "progress_tokens": progress or 0,
+                            "total_tokens": active_slot.get("n_ctx", 71680),
+                            "id_task": active_slot.get("id_task", -1)
+                        }
+    except Exception as e:
+        # Log error to stdout for container log visibility
+        print(f"[Dashboard Monitor Error]: {e}")
+        pass
+    return {"is_processing": False, "progress_tokens": 0, "total_tokens": 0}
 
 @app.get("/api/tasks")
 async def get_tasks():
@@ -170,15 +227,23 @@ async def get_insights():
 
 @app.get("/api/llm_logs")
 async def get_llm_logs():
+    """Fetches the latest 20 LLM call traces for visualization."""
+    if not RUNTIME_LOG_DIR.exists():
+        return []
+        
     log_files = glob.glob(str(RUNTIME_LOG_DIR / "call-*.json"))
     log_files.sort(reverse=True) # Latest first
     
     logs = []
-    # Only return last 20 for performance
+    # Only return last 20 for performance and clarity
     for file_path in log_files[:20]:
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
+                # Ensure timestamp exists for UI sorting/display
+                if "timestamp" not in data:
+                    mtime = os.path.getmtime(file_path)
+                    data["timestamp"] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
                 logs.append(data)
         except:
             continue
