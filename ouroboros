@@ -19,7 +19,6 @@ RUN_DIR = Path("/tmp/ouroboros-runtime")
 PID_FILE = RUN_DIR / "watchdog.pid"
 LOG_FILE = RUN_DIR / "watchdog.log"
 
-SCRATCHPAD_PATH = MEMORY_DIR / "scratchpad.md"
 CRASH_LOG_PATH = MEMORY_DIR / "last_crash.log"
 STATS_FILE = MEMORY_DIR / ".runtime_stats.json"
 PENDING_NOTICES_PATH = MEMORY_DIR / "pending_system_notices.json"
@@ -66,7 +65,6 @@ def trigger_lazarus_reset(reason="Crash detected"):
     stats = load_runtime_stats()
     current_task = get_current_task_id()
     
-    # If we are failing on the same task, increase depth
     if current_task == stats.get("last_task_id") and current_task is not None:
         stats["consecutive_failures"] += 1
     else:
@@ -76,21 +74,34 @@ def trigger_lazarus_reset(reason="Crash detected"):
     depth = min(stats["consecutive_failures"], MAX_REVERSAL_DEPTH)
     print(f"\033[91m[DAEMON] LAZARUS PROTOCOL: {reason.upper()}. Reverting {depth} commit(s)...\033[0m", flush=True)
     
-    # 1. Capture what happened
     capture_crash_log()
-    crash_report = CRASH_LOG_PATH.read_text() if CRASH_LOG_PATH.exists() else "No logs available."
     
-    # 2. Perform Reversal on the volume
-    # We must be on ouroboros branch
-    subprocess.run("git checkout ouroboros", shell=True, cwd=AGENT_DIR)
-    # Get the commit we are reverting from for the report
-    res = subprocess.run("git rev-parse --short HEAD", shell=True, cwd=AGENT_DIR, capture_output=True, text=True)
-    last_commit = res.stdout.strip()
+    # --- VOLUME RECOVERY (Fixing the Gap) ---
+    # We MUST perform the reversal on the named volume 'agent_workspace'
+    print(f"[DAEMON] Reverting code in named volume 'agent_workspace'...")
     
+    # 1. Get the current commit hash from the volume
+    res = subprocess.run(
+        "docker run --rm -v agent_workspace:/app -w /app alpine/git rev-parse --short HEAD",
+        shell=True, capture_output=True, text=True
+    )
+    last_commit = res.stdout.strip() if res.stdout else "unknown"
+    
+    # 2. Reset the volume to HEAD~N
+    subprocess.run(
+        f"docker run --rm -v agent_workspace:/app -w /app alpine/git reset --hard HEAD~{depth}",
+        shell=True
+    )
+    subprocess.run(
+        "docker run --rm -v agent_workspace:/app -w /app alpine/git clean -fd",
+        shell=True
+    )
+    
+    # --- SYNC HOST FOR CONSISTENCY ---
+    # Optional but recommended so the host repo matches the volume state
     subprocess.run(f"git reset --hard HEAD~{depth}", shell=True, cwd=AGENT_DIR)
     subprocess.run("git clean -fd", shell=True, cwd=AGENT_DIR)
     
-    # 3. Inform the agent
     notice = f"[SYSTEM WATCHDOG]: Your previous incarnation crashed (Commit: {last_commit}).\n"
     notice += f"Reason: {reason}\n"
     notice += f"The watchdog has reverted your codebase by {depth} commit(s) to restore stability.\n"
@@ -120,7 +131,6 @@ def get_compose_args():
     return f"{base_compose} -f docker-compose.cuda.yml"
 
 def wait_for_gate_healthy(compose_args, timeout=600):
-    print("\033[94m[DAEMON] Waiting for LLM Gate to be healthy...\033[0m", flush=True)
     start_wait = time.time()
     while time.time() - start_wait < timeout:
         res = subprocess.run("docker inspect --format='{{.State.Health.Status}}' ouroboros_gate", shell=True, capture_output=True, text=True)
@@ -162,7 +172,6 @@ def run_daemon():
         start_time = time.time()
         print(f"\n[DAEMON] Starting Ouroboros Agent...", flush=True)
         
-        # 3. Start Agent
         cmd = f"docker compose {compose_args} up --build ouroboros"
         process = subprocess.Popen(cmd, shell=True, cwd=RUNTIME_DIR)
         global daemon_process
