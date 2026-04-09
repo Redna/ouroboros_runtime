@@ -111,7 +111,12 @@
                 <div class="card">
                     <h3>Turn Time</h3>
                     <p id="last-turn-time">0.0s</p>
-                    <small>LLM Latency</small>
+                    <div class="token-metrics-mini">
+                        <span title="Cached Tokens">C: <span id="turn-cached-tokens">0</span></span> | 
+                        <span title="New Input Tokens">I: <span id="turn-input-tokens">0</span></span> | 
+                        <span title="Output Tokens">O: <span id="turn-output-tokens">0</span></span>
+                    </div>
+                    <small>LLM Latency & Tokens</small>
                 </div>
             </section>
 

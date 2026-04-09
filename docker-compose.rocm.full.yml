@@ -1,0 +1,168 @@
+services:
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-rocm
+    container_name: llamacpp
+    restart: unless-stopped
+    privileged: true
+    shm_size: 16G
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    volumes:
+      - ./models:/models
+    ports:
+      - 8000:8080
+    environment:
+      - HSA_ENABLE_SDMA=0
+    command:
+      - -m
+      - /models/gemma-4-31B-it-UD-Q4_K_XL.gguf
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -ngl
+      - "999"               
+      - -c
+      - "65536"          
+      - --no-warmup
+      - --flash-attn      
+      - "on"              
+      - --cache-type-k
+      - "q4_0"            
+      - --cache-type-v
+      - "q4_0"            
+      - -b
+      - "1024"            
+      - -ub
+      - "512"            
+      - -np
+      - "1"
+      - --temp
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "64"
+      - --reasoning
+      - "on"
+    networks:
+      - ouroboros_net
+
+  gate:
+    build:
+      context: ./gate
+      dockerfile: Dockerfile
+    container_name: ouroboros_gate
+    ports:
+      - "4000:4000"
+    volumes:
+      - ../ouroboros_memory:/memory:rw
+      - ./llm_logs:/runtime_logs:rw
+    environment:
+      - TOGETHERAI_API_KEY=${TOGETHERAI_API_KEY:-}
+      - MEMORY_DIR=/memory
+      - RUNTIME_LOG_DIR=/runtime_logs
+      - DAILY_BUDGET_LIMIT=${DAILY_BUDGET_LIMIT:-5.00}
+      - OUROBOROS_CONTEXT_WINDOW=65536
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request, json; resp = urllib.request.urlopen('http://localhost:4000/health').read(); data = json.loads(resp); exit(0 if data.get('status') == 'healthy' else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - ouroboros_net
+    depends_on:
+      llamacpp:
+        condition: service_started
+
+  searxng:
+    container_name: searxng
+    image: docker.io/searxng/searxng:latest
+    networks:
+      - ouroboros_net
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    container_name: redis
+    image: docker.io/library/redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    networks:
+      - ouroboros_net
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  ouroboros:
+    build:
+      context: ..
+      dockerfile: ouroboros_runtime/Dockerfile
+    container_name: ouroboros_agent
+    security_opt:
+      - seccomp=unconfined
+    env_file: .env
+    environment:
+      - OUROBOROS_REPO_DIR=/app
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - UV_PROJECT_ENVIRONMENT=/venv
+      - UV_CACHE_DIR=/tmp/.uv-cache
+      - DEFAULT_MODEL=gemma-4-31B-it-UD-Q4_K_XL.gguf
+      - OUROBOROS_MODEL=gemma-4-31B-it-UD-Q4_K_XL.gguf
+      - OUROBOROS_CONTEXT_WINDOW=65536
+    volumes:
+      - ../ouroboros_memory:/memory
+      - agent_workspace:/app
+    networks:
+      - ouroboros_net
+    depends_on:
+      searxng:
+        condition: service_started
+      gate:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: ouroboros_dashboard
+    ports:
+      - "8082:8000"
+    volumes:
+      - ./dashboard:/app
+      - ../ouroboros_memory:/memory:ro
+      - agent_workspace:/agent_soul:ro
+      - ./llm_logs:/runtime_logs:ro
+    environment:
+      - RUNTIME_LOG_DIR=/runtime_logs
+    networks:
+      - ouroboros_net
+    depends_on:
+      - ouroboros
+    restart: unless-stopped
+
+networks:
+  ouroboros_net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  agent_workspace:

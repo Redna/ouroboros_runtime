@@ -81,21 +81,31 @@ async function updateStatus() {
                 const latest = llmLogs[0];
                 
                 // Cache Hit Calculation (Nested under response)
+                const timings = latest.response?.timings;
                 const usage = latest.response?.usage;
-                const cached = usage?.prompt_tokens_details?.cached_tokens || 0;
-                const total = usage?.prompt_tokens || 1;
-                const hitPct = Math.round((cached / total) * 100);
+                
+                // Prioritize timings for local llama.cpp, fallback to OpenAI usage
+                const cached = timings?.cache_n || usage?.prompt_tokens_details?.cached_tokens || 0;
+                const completion = timings?.predicted_n || usage?.completion_tokens || 0;
+                const totalPrompt = usage?.prompt_tokens || ((timings?.prompt_n || 0) + (timings?.cache_n || 0));
+                const hitPct = totalPrompt > 0 ? Math.round((cached / totalPrompt) * 100) : 0;
                 
                 if (document.getElementById('cache-hit-percent')) document.getElementById('cache-hit-percent').innerText = hitPct + '%';
                 if (document.getElementById('cache-hit-bar')) document.getElementById('cache-hit-bar').style.width = hitPct + '%';
                 
                 // Turn Time Calculation (Nested under response)
-                const timings = latest.response?.timings;
                 const promptMs = timings?.prompt_ms || 0;
                 const predMs = timings?.predicted_ms || 0;
                 const totalSeconds = ((promptMs + predMs) / 1000).toFixed(1);
                 
                 if (document.getElementById('last-turn-time')) document.getElementById('last-turn-time').innerText = totalSeconds + 's';
+
+                // Token Metrics for the last turn
+                const newInput = timings?.prompt_n || (totalPrompt - cached);
+
+                if (document.getElementById('turn-cached-tokens')) document.getElementById('turn-cached-tokens').innerText = cached.toLocaleString();
+                if (document.getElementById('turn-input-tokens')) document.getElementById('turn-input-tokens').innerText = newInput.toLocaleString();
+                if (document.getElementById('turn-output-tokens')) document.getElementById('turn-output-tokens').innerText = completion.toLocaleString();
             }
         } catch (llmErr) {
             console.error("Failed to update LLM metrics:", llmErr);

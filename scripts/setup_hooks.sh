@@ -18,7 +18,11 @@ export PYTHONDONTWRITEBYTECODE=1
 echo "[Pre-commit] Executing mypy..."
 uv run mypy seed_agent.py || { echo "[Error] Type check failed! Commit aborted."; exit 1; }
 
-# 2. Logic Verification (Pytest)
+# 2. Syntax Validation (Fast-fail)
+echo "[Pre-commit] Executing syntax check..."
+python3 -m py_compile seed_agent.py || { echo "[Error] Syntax error detected! Commit aborted."; exit 1; }
+
+# 3. Logic Verification (Pytest)
 echo "[Pre-commit] Executing pytest..."
 uv run pytest tests/ || { echo "[Error] Tests failed! Commit aborted."; exit 1; }
 
